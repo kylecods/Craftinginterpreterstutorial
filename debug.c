@@ -2,6 +2,7 @@
 
 #include "debug.h"
 #include "value.h"
+#include "object.h"
 
 void disassemble_chunk(Chunk *chunk, const char *name){
 
@@ -40,6 +41,7 @@ static int jump_instr(const char* name, int sign, Chunk* chunk, int offset){
 
 int disassemble_instr(Chunk *chunk, int offset) {
   /* code */
+  printf("\x1B[35m");
   printf("%04d ", offset);
 
   if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
@@ -72,8 +74,13 @@ int disassemble_instr(Chunk *chunk, int offset) {
       return constant_instr("OP_DEFINE_GLOBAL", chunk, offset);
     case OP_SET_GLOBAL:
       return constant_instr("OP_SET_GLOBAL", chunk, offset);
-    case OP_EQUAL:
-      return simple_instr("OP_EQUAL", offset);
+      case OP_GET_UPVALUE:
+          return byte_instr("OP_GET_UPVALUE", chunk, offset);
+      case OP_SET_UPVALUE:
+          return byte_instr("OP_SET_UPVALUE", chunk,offset);
+
+      case OP_EQUAL:
+        return simple_instr("OP_EQUAL", offset);
     case OP_GREATER:
       return simple_instr("OP_GREATER", offset);
     case OP_LESS:
@@ -100,6 +107,25 @@ int disassemble_instr(Chunk *chunk, int offset) {
       return jump_instr("OP_LOOP", -1, chunk, offset);
       case OP_CALL:
           return byte_instr("OP_CALL", chunk, offset);
+      case OP_CLOSURE:{
+        offset++;
+        uint8_t constant = chunk->code[offset++];
+        printf("%-16s %4d ", "OP_CLOSURE", constant);
+        print_value(chunk->constants.values[constant]);
+        printf("\n");
+
+        ObjFunction* function = AS_FUNCTION(chunk->constants.values[constant]);
+          for (int j = 0; j < function->upvalue_count; j++) {
+              int is_local = chunk->code[offset++];
+              int index = chunk->code[offset++];
+
+              printf("%04d      |                   %s %d\n",
+                     offset-2, is_local ? "local" : "upvalue", index);
+          }
+          return offset;
+      }
+      case OP_CLOSE_UPVALUE:
+          return simple_instr("OP_CLOSE_UPVALUE", offset);
     case OP_RETURN:
       return simple_instr("OP_RETURN", offset);
     default:

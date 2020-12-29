@@ -1,0 +1,14 @@
+func outer_func(msg){
+    var message = msg;
+    func inner_func(){
+        print message;
+    }
+
+    return inner_func;
+}
+
+var hi_func = outer_func("hi");
+var hello_func = outer_func("hello");
+
+hi_func();
+hello_func();

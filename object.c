@@ -14,16 +14,34 @@
 static Obj* allocate_object(size_t size, ObjType type){
   Obj* object = (Obj*)reallocate(NULL,0,size);
   object->type = type;
-
+  object->is_marked = false;
   object->next = vm.objects;
   vm.objects = object;
+#ifdef DEBUG_LOG_GC
+    printf("\x1B[36m");
+  printf("%p allocate %ld for %d\n", (void*)object,size,type);
+    printf("\x1B[37m");
+#endif
   return object;
+}
+
+ObjClosure* newClosure(ObjFunction* function){
+    ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalue_count);
+    for(int i = 0; i < function->upvalue_count; i++){
+        upvalues[i] = NULL;
+    }
+    ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+    closure->function = function;
+    closure->upvalues = upvalues;
+    closure->upvalue_count = function->upvalue_count;
+    return closure;
 }
 
 ObjFunction* newFunction(){
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
 
     function->arity = 0;
+    function->upvalue_count = 0;
     function->name = NULL;
     init_chunk(&function->chunk);
     return function;
@@ -83,6 +101,15 @@ ObjString* copy_string(const char* chars, int length){
   return allocate_string(heap_chars, length, hash);
 }
 
+ObjUpvalue* newUpvalue(Value* slot){
+    ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue,OBJ_UPVALUE);
+    upvalue->closed = NIL_VAL;
+    upvalue->location = slot;
+    upvalue->next = NULL;
+    return upvalue;
+}
+
+
 static void printFunction(ObjFunction* function){
     if(function->name == NULL){
         printf("<script>");
@@ -93,8 +120,14 @@ static void printFunction(ObjFunction* function){
 
 void print_object(Value value){
   switch(OBJ_TYPE(value)){
+      case OBJ_CLOSURE:
+          printFunction(AS_CLOSURE(value)->function);
+          break;
       case OBJ_STRING:
           printf("%s", AS_CSTRING(value));
+          break;
+      case OBJ_UPVALUE:
+          printf("upvalue");
           break;
       case OBJ_NATIVE:
           printf("<native fn>");

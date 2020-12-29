@@ -11,7 +11,7 @@
 
 //single ongoing function call
 typedef struct{
-    ObjFunction* function;
+    ObjClosure* closure;
     uint8_t* ip;
     Value* slots;//points to VMs value stack at the first slot the function can use
 } CallFrame;
@@ -23,8 +23,11 @@ typedef struct{
   Value *stack_top; //the top or beginning of the stack
   Table strings; //for string interning
   Table globals; //for globals
-
+  ObjUpvalue* open_upvalues;
   Obj* objects;
+  int gray_count;
+  int gray_capacity;
+  Obj** gray_stack;
 }VM;
 
 typedef enum{

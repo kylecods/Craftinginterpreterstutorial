@@ -11,11 +11,29 @@
 #include "object.h"
 #include "memory.h"
 
+#define CRED printf("\x1B[31m");
+
+
+
+
+
 
 
 VM vm;//should be a pointer for multiple instances and dont make a it global variable
 static void runtime_error(const char *format, ...);
 static Value cprint_native(int arg_count,Value* args);
+
+static char* format_type(char* args){
+         if(strcmp(args,"%s") == 0){
+        return "%s";
+    }else if(strcmp(args,"%g") == 0){
+        return "%g";
+    }else{
+        return "format is wrong";
+         }
+
+}
+
 
 /*
  * Things ive seen needed for a language to be complete.
@@ -38,21 +56,44 @@ static Value strlen_native(int arg_count, Value* args){
     char *f = AS_CSTRING(*args++);
     return NUMBER_VAL((double)strlen(f));
 }
-static Value cprint_native(int arg_count,Value* args){
-    if(arg_count <=2) {
-        char* format = AS_CSTRING(*args++);
-        char* string = AS_CSTRING(*args++);
-        printf(format, string);
-    } else{
-        runtime_error("Arguments should be 2.");
-    }
+static Value cprintln_native(int arg_count,Value* args){
+    //@fix use available helper fns...
+    //@add later figure out how to support multiple values eg. printf("%s%d",string,double)..
+    // trying to copy c printf by having users declare the format types
+    // otherwise could have just used print_value function.
+
+
+        for (int i = 1; i < arg_count; i++){
+            char* format = AS_CSTRING(args[0]);
+            CRED;
+            switch (IS_STRING(args[i])) {
+                case true:
+                    printf(format, AS_CSTRING(args[i]));
+                    break;
+                default:
+                    printf(format, AS_NUMBER(args[i]));
+                    break;
+            }
+            printf("\n");
+            printf("\x1B[37m");
+        }
+
     return NIL_VAL;
 }
 static void  reset_stack() {
   /* code */
   vm.stack_top = vm.stack;
   vm.frameCount = 0;
+  vm.open_upvalues = NULL;
 }
+//static inline ObjFunction* get_framefunction(CallFrame* frame) {
+//    if (frame->function->type == OBJ_FUNCTION){
+//        return (ObjFunction*)frame->function;
+//    } else{
+//        return ((ObjClosure*)frame->function)->function;
+//    }
+//
+//}
 
 static void runtime_error(const char *format, ...){
   va_list args;
@@ -63,21 +104,21 @@ static void runtime_error(const char *format, ...){
 
     for (int i = vm.frameCount - 1; i >= 0; i--) {
         CallFrame* frame = &vm.frames[i];
-        ObjFunction* function = frame->function;
+        ObjFunction* function = frame->closure->function;
         //-1 because the IP is sitting on the next instruction to be executed
         size_t instruction = frame->ip - function->chunk.code - 1;
-        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
+        fprintf(stderr, "\x1B[31m[line %d] in ", function->chunk.lines[instruction]);
         if(function->name == NULL) {
-            fprintf(stderr, "script\n");
+            fprintf(stderr, "\x1B[31mscript\n");
         } else{
-            fprintf(stderr, "%s()\n", function->name->chars);
+            fprintf(stderr, "\x1B[31m%s()\n", function->name->chars);
         }
     }
 
   CallFrame* frame = &vm.frames[vm.frameCount - 1];
-  size_t instr = frame->ip - frame->function->chunk.code - 1;
-  int line = frame->function->chunk.lines[instr];
-  fprintf(stderr, "[line %d] in script\n", line);
+  size_t instr = frame->ip - frame->closure->function->chunk.code - 1;
+  int line = frame->closure->function->chunk.lines[instr];
+  fprintf(stderr, "\x1B[31m[line %d] in script\n", line);
 
   reset_stack();
 }
@@ -92,13 +133,19 @@ static void define_native(const char* name, NativeFn function) {
 void init_vm(){
   reset_stack();
   vm.objects = NULL;
+  vm.gray_count = 0;
+  vm.gray_capacity = 0;
+  vm.gray_stack = NULL;
+
   init_table(&vm.globals);
   init_table(&vm.strings);
+
+
   define_native("clock", clock_native);
   define_native("sin", sin_native);
     define_native("floor", floor_native);
     define_native("strlength", strlen_native);
-    define_native("printf", cprint_native);
+    define_native("printfln", cprintln_native);
 }
 
 void free_vm() {
@@ -123,9 +170,9 @@ static Value peek(int distance){
   return vm.stack_top[-1 - distance];
 }
 
-static bool call(ObjFunction* function, int arg_count){
-    if(arg_count != function->arity) {
-        runtime_error("Expected %d arguments but got %d.", function->arity, arg_count);
+static bool call(ObjClosure* closure, int arg_count){
+    if(arg_count != closure->function->arity) {
+        runtime_error("Expected %d arguments but got %d.", closure->function->arity, arg_count);
         return false;
     }
     if (vm.frameCount == FRAMES_MAX){
@@ -133,8 +180,8 @@ static bool call(ObjFunction* function, int arg_count){
         return false;
     }
     CallFrame* frame = &vm.frames[vm.frameCount++];
-    frame->function = function;
-    frame->ip = function->chunk.code;
+    frame->closure = closure;
+    frame->ip = closure->function->chunk.code;
 
     frame->slots = vm.stack_top - arg_count - 1;
     return true;
@@ -144,8 +191,10 @@ static bool call(ObjFunction* function, int arg_count){
 static bool call_value(Value callee, int arg_count) {
     if(IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
-            case OBJ_FUNCTION:
-                return call(AS_FUNCTION(callee), arg_count);
+            case OBJ_CLOSURE:
+                return call(AS_CLOSURE(callee), arg_count);
+//            case OBJ_FUNCTION:
+//                return call(AS_FUNCTION(callee),arg_count);
             case OBJ_NATIVE:{
                 NativeFn native = AS_NATIVE(callee);
                 Value result = native(arg_count, vm.stack_top-arg_count);
@@ -161,6 +210,36 @@ static bool call_value(Value callee, int arg_count) {
     runtime_error("Can only call functions and classes.");
     return false;
 }
+static ObjUpvalue* capture_upvalue(Value* local){
+    ObjUpvalue* prev_upvalue = NULL;
+    ObjUpvalue* upvalue = vm.open_upvalues;
+    while (upvalue != NULL && upvalue->location > local){
+        prev_upvalue = upvalue;
+        upvalue = upvalue->next;
+    }
+    if (upvalue != NULL && upvalue->location == local){
+        return upvalue;
+    }
+    ObjUpvalue* created_upvalue = newUpvalue(local);
+    created_upvalue->next = upvalue;
+    if(prev_upvalue == NULL){
+        vm.open_upvalues = created_upvalue;
+    } else{
+        prev_upvalue->next = created_upvalue;
+    }
+    return created_upvalue;
+}
+
+static void close_upvalues(Value* last){
+    while (vm.open_upvalues != NULL && vm.open_upvalues->location >= last){
+        ObjUpvalue* upvalue = vm.open_upvalues;
+        upvalue->closed = *upvalue->location;
+        upvalue->location = &upvalue->closed;
+        vm.open_upvalues = upvalue->next;
+    }
+}
+
+
 //@fix
 static bool is_falsey(Value value){
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
@@ -181,8 +260,9 @@ static void concatenate(){
 }
 static InterpretResult run(){
     CallFrame* frame = &vm.frames[vm.frameCount - 1];
+
   #define READ_BYTE() (*frame->ip++)
-  #define READ_CONST() (frame->function->chunk.constants.values[READ_BYTE()])
+  #define READ_CONST() (frame->closure->function->chunk.constants.values[READ_BYTE()])
   #define READ_SHORT() \
           (frame->ip+=2, \
           (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
@@ -210,7 +290,7 @@ static InterpretResult run(){
         printf(" ]");
       }
       printf("\n");
-      disassemble_instr(&frame->function->chunk, (int)(frame->ip - frame->function->chunk.code));
+      disassemble_instr(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));
     #endif
     uint8_t instr;
     switch (instr = READ_BYTE()) {
@@ -257,6 +337,16 @@ static InterpretResult run(){
           return INTERPRET_RUNTIME_ERROR;
         }
         break;
+      }
+      case OP_GET_UPVALUE:{
+          uint8_t slot = READ_BYTE();
+          push(*frame->closure->upvalues[slot]->location);
+          break;
+      }
+      case OP_SET_UPVALUE:{
+          uint8_t slot = READ_BYTE();
+          *frame->closure->upvalues[slot]->location = peek(0);
+          break;
       }
       case OP_EQUAL: {
         Value b = pop();
@@ -332,8 +422,28 @@ static InterpretResult run(){
             frame = &vm.frames[vm.frameCount - 1];
             break;
         }
+        case OP_CLOSURE:{
+            ObjFunction* function = AS_FUNCTION(READ_CONST());
+            ObjClosure* closure = newClosure(function);
+            push(OBJ_VAL(closure));
+            for (int i = 0; i < closure->upvalue_count; ++i) {
+                uint8_t is_local = READ_BYTE();
+                uint8_t index = READ_BYTE();
+                if(is_local){
+                    closure->upvalues[i] = capture_upvalue(frame->slots + index);
+                } else{
+                    closure->upvalues[i] =closure->upvalues[index];
+                }
+            }
+            break;
+        }
+        case OP_CLOSE_UPVALUE:
+            close_upvalues(vm.stack_top - 1);
+            pop();
+            break;
       case OP_RETURN:{
           Value result = pop();
+          close_upvalues(frame->slots);
           vm.frameCount--;
           if(vm.frameCount == 0){
               pop();
@@ -367,7 +477,10 @@ InterpretResult interpret(const char* source){
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
     push(OBJ_VAL(function));
-    call_value(OBJ_VAL(function), 0);
+    ObjClosure* closure = newClosure(function);
+    pop();
+    push(OBJ_VAL(closure));
+    call_value(OBJ_VAL(closure), 0);
 
     return run();
 }
