@@ -18,9 +18,10 @@ static Obj* allocate_object(size_t size, ObjType type){
   object->next = vm.objects;
   vm.objects = object;
 #ifdef DEBUG_LOG_GC
-    printf("\x1B[36m");
-  printf("%p allocate %ld for %d\n", (void*)object,size,type);
-    printf("\x1B[37m");
+//    printf("\x1B[36m");
+//  printf("%p allocate %ld for %d\n", (void*)object,size,type);
+    __print_with_color(_CYAN,"%p allocate %zd for %d\n", (void*)object,size,type)
+    printf(_RESET);
 #endif
   return object;
 }
@@ -62,8 +63,11 @@ static ObjString* allocate_string(char* chars, int length,uint32_t hash){
   string->chars = chars;
   string->hash = hash;
 
+  //make new strings reachable for the GC
+  push(OBJ_VAL(string));
+  //GC trigger
   table_set(&vm.strings, string, NIL_VAL);
-
+  pop();
   return string;
 }
 

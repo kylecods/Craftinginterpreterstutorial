@@ -24,6 +24,10 @@ typedef struct{
   Table strings; //for string interning
   Table globals; //for globals
   ObjUpvalue* open_upvalues;
+
+  size_t bytes_alocated;//running total of no of bytes of managed memory
+  size_t next_gc;//threshold that triggers next collection
+
   Obj* objects;
   int gray_count;
   int gray_capacity;

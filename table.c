@@ -140,7 +140,7 @@ void table_remove_white(Table* table){
 }
 
 void mark_table(Table* table){
-    for(int i = 0; i< table->capacity; i++){
+    for(int i = 0; i < table->capacity; i++){
         Entry* entry = &table->entries[i];
         mark_object((Obj*)entry->key);
         mark_value(entry->value);

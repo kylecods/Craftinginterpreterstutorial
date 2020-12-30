@@ -10,6 +10,9 @@
 #include "debug.h"
 #endif
 
+//tune this later
+#define GC_HEAP_GROW_FACTOR 2
+
 /*
  * Start off with all objects white.
  * Find all the roots and mark them gray.
@@ -19,10 +22,14 @@
  */
 
 void *reallocate(void* prev, size_t old_size, size_t new_size){
+    vm.bytes_alocated += new_size - old_size;
     if (new_size > old_size){
 #ifdef DEBUG_STRESS_GC
         collect_garbage();
 #endif
+        if (vm.bytes_alocated > vm.next_gc){
+            collect_garbage();
+        }
     }
   if(new_size == 0){
     free(prev);
@@ -36,13 +43,14 @@ void mark_object(Obj* object){
     if(object->is_marked) return;
 #ifdef DEBUG_LOG_GC
     //for readability
-    printf("\x1B[31m");
-
-    printf("%p mark ",(void*)object);
+//    printf("\x1B[31m");
+//
+//    printf("%p mark ",(void*)object);
+    __print_with_color(_RED,"%p mark ",(void*)object);
     print_value(OBJ_VAL(object));
     printf("\n");
 
-    printf("\x1B[37m");
+    printf(_RESET);
 #endif
     object->is_marked = true;
     if(vm.gray_capacity < vm.gray_count + 1){
@@ -81,7 +89,8 @@ static void blacken_object(Obj* object){
         }
         case OBJ_FUNCTION:{
             ObjFunction* function = (ObjFunction*)object;
-            mark_object((Obj*)function);
+
+            mark_object((Obj*)function->name);
             mark_array(&function->chunk.constants);
             break;
         }
@@ -100,7 +109,7 @@ static void free_object(Obj *object) {
 //    printf("%p free type %d\n", (void*)object,object->type);
 
     __print_with_color(_BLUE, "%p free type %d\n", (void*)object,object->type);
-    printf("\x1B[37m");
+    printf(_RESET);
 #endif
   switch (object->type) {
       case OBJ_CLOSURE:{
@@ -187,19 +196,26 @@ void collect_garbage(){
 //    printf("\x1B[32m");
 //    printf("-- gc begin\n");
     __print_with_color(_GREEN,"-- gc begin\n");
+    size_t before = vm.bytes_alocated;
     printf(_RESET);
+
 #endif
     //mark
     mark_roots();
     //trace
     trace_references();
+
+    //weak references
     table_remove_white(&vm.strings);
     //sweep
     sweep();
+    vm.next_gc = vm.bytes_alocated * GC_HEAP_GROW_FACTOR;
 #ifdef DEBUG_LOG_GC
 //    printf("\x1B[32m");
 //    printf("-- gc end\n");
     __print_with_color(_GREEN,"-- gc end\n");
+    printf("    collected %zd bytes (from %zd to %zd) next at %zd\n",
+           before - vm.bytes_alocated, before, vm.bytes_alocated,vm.next_gc);
     printf(_RESET);
 #endif
 }
