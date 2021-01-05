@@ -11,7 +11,7 @@
 #include "object.h"
 #include "memory.h"
 
-#define CRED printf("\x1B[31m");
+
 
 
 
@@ -56,26 +56,19 @@ static Value strlen_native(int arg_count, Value* args){
     char *f = AS_CSTRING(*args++);
     return NUMBER_VAL((double)strlen(f));
 }
-static Value cprintln_native(int arg_count,Value* args){
-    //@fix use available helper fns...
-    //@add later figure out how to support multiple values eg. printf("%s%d",string,double)..
-    // trying to copy c printf by having users declare the format types
-    // otherwise could have just used print_value function.
-
-
-        for (int i = 1; i < arg_count; i++){
-            char* format = AS_CSTRING(args[0]);
-            CRED;
-            switch (IS_STRING(args[i])) {
-                case true:
-                    printf(format, AS_CSTRING(args[i]));
-                    break;
-                default:
-                    printf(format, AS_NUMBER(args[i]));
-                    break;
-            }
+static Value print_native(int arg_count,Value* args){
+    //pass in list of arguments and print them out on one line
+    //if exhausted the number of arguments skip a line
+        if(arg_count == 0){
             printf("\n");
-            printf("\x1B[37m");
+            return NIL_VAL;
+        }
+        for (int i = 0; i < arg_count; i++){
+            Value value = args[i];
+            print_value(value);
+            if (i == arg_count-1){
+                printf("\n");
+            }
         }
 
     return NIL_VAL;
@@ -107,18 +100,18 @@ static void runtime_error(const char *format, ...){
         ObjFunction* function = frame->closure->function;
         //-1 because the IP is sitting on the next instruction to be executed
         size_t instruction = frame->ip - function->chunk.code - 1;
-        fprintf(stderr, "\x1B[31m[line %d] in ", function->chunk.lines[instruction]);
+        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
         if(function->name == NULL) {
-            fprintf(stderr, "\x1B[31mscript\n");
+            fprintf(stderr, "script\n");
         } else{
-            fprintf(stderr, "\x1B[31m%s()\n", function->name->chars);
+            fprintf(stderr, "%s()\n", function->name->chars);
         }
     }
 
   CallFrame* frame = &vm.frames[vm.frameCount - 1];
   size_t instr = frame->ip - frame->closure->function->chunk.code - 1;
   int line = frame->closure->function->chunk.lines[instr];
-  fprintf(stderr, "\x1B[31m[line %d] in script\n", line);
+  fprintf(stderr, "[line %d] in script\n", line);
 
   reset_stack();
 }
@@ -141,19 +134,22 @@ void init_vm(){
 
   init_table(&vm.globals);
   init_table(&vm.strings);
+  vm.init_string = NULL;
+  vm.init_string = copy_string("init",4);
 
 
   define_native("clock", clock_native);
   define_native("sin", sin_native);
     define_native("floor", floor_native);
     define_native("strlength", strlen_native);
-    define_native("printfln", cprintln_native);
+    define_native("print", print_native);
 }
 
 void free_vm() {
   /* code */
   free_table(&vm.globals);
   free_table(&vm.strings);
+  vm.init_string = NULL;
   free_objects();
 }
 
@@ -193,6 +189,23 @@ static bool call(ObjClosure* closure, int arg_count){
 static bool call_value(Value callee, int arg_count) {
     if(IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
+            case OBJ_BOUND_METHOD:{
+                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+                vm.stack_top[-arg_count - 1] = bound->receiver;
+                return call(bound->method,arg_count);
+            }
+            case OBJ_CLASS:{
+                ObjClass* klass = AS_CLASS(callee);
+                vm.stack_top[-arg_count - 1] = OBJ_VAL(newInstance(klass));
+                Value initializer;
+                if(table_get(&klass->methods, vm.init_string,&initializer)){
+                    return call(AS_CLOSURE(initializer), arg_count);
+                }else if (arg_count != 0){
+                    runtime_error("Expected 0 arguments but got %d.", arg_count);
+                    return false;
+                }
+                return true;
+            }
             case OBJ_CLOSURE:
                 return call(AS_CLOSURE(callee), arg_count);
 //            case OBJ_FUNCTION:
@@ -211,6 +224,41 @@ static bool call_value(Value callee, int arg_count) {
 
     runtime_error("Can only call functions and classes.");
     return false;
+}
+
+static bool invoke_from_class(ObjClass* klass, ObjString* name, int arg_count){
+    Value method;
+    if (!table_get(&klass->methods, name, &method)){
+        runtime_error("Undefined property '%s'.", name->chars);
+        return false;
+    }
+    return call(AS_CLOSURE(method),arg_count);
+}
+
+static bool invoke(ObjString* name, int arg_count){
+    Value receiver = peek(arg_count);
+    if(!IS_INSTANCE(receiver)){
+        runtime_error("Only instances have methods.");
+        return false;
+    }
+    ObjInstance* instance = AS_INSTANCE(receiver);
+    Value value;
+    if(table_get(&instance->fields, name, & value)){
+        vm.stack_top[-arg_count - 1] = value;
+        return call_value(value,arg_count);
+    }
+    return invoke_from_class(instance->klass, name, arg_count);
+}
+static bool bind_method(ObjClass* klass, ObjString* name){
+    Value method;
+    if(!table_get(&klass->methods,name,&method)){
+        runtime_error("Undefined property '%s'.",name->chars);
+        return false;
+    }
+    ObjBoundMethod* bound = newBoundMethod(peek(0),AS_CLOSURE(method));
+    pop();
+    push(OBJ_VAL(bound));
+    return true;
 }
 static ObjUpvalue* capture_upvalue(Value* local){
     ObjUpvalue* prev_upvalue = NULL;
@@ -241,6 +289,12 @@ static void close_upvalues(Value* last){
     }
 }
 
+static void define_method(ObjString* name){
+    Value method = peek(0);
+    ObjClass* klass = AS_CLASS(peek(1));
+    table_set(&klass->methods,name,method);
+    pop();
+}
 
 //@fix
 static bool is_falsey(Value value){
@@ -352,6 +406,43 @@ static InterpretResult run(){
           *frame->closure->upvalues[slot]->location = peek(0);
           break;
       }
+
+      case OP_GET_PROPERTY: {
+          if (!IS_INSTANCE(peek(0))){
+              runtime_error("Only instances have properties.");
+              return INTERPRET_RUNTIME_ERROR;
+          }
+
+          ObjInstance* instance = AS_INSTANCE(peek(0));
+          ObjString* name = READ_STRING();
+
+          Value value;
+          if(table_get(&instance->fields, name, &value)){
+              pop(); //instance
+              push(value);
+              break;
+          }
+          if(!bind_method(instance->klass, name)){
+              return INTERPRET_RUNTIME_ERROR;
+          }
+          break;
+
+      }
+
+      case OP_SET_PROPERTY:{
+          if(!IS_INSTANCE(peek(1))){
+              runtime_error("Only instances have fields.");
+              return INTERPRET_RUNTIME_ERROR;
+          }
+          ObjInstance* instance = AS_INSTANCE(peek(1));
+          table_set(&instance->fields, READ_STRING(), peek(0));
+
+          Value value = pop();
+          pop();
+          push(value);
+          break;
+      }
+
       case OP_EQUAL: {
         Value b = pop();
         Value a = pop();
@@ -396,11 +487,6 @@ static InterpretResult run(){
         push(NUMBER_VAL(-AS_NUMBER(pop())));
         break;
       }
-      case OP_PRINT:{
-        print_value(pop());
-        printf("\n");
-        break;
-      }
 
       case OP_JUMP: {
         uint16_t offset = READ_SHORT();
@@ -426,6 +512,17 @@ static InterpretResult run(){
             frame = &vm.frames[vm.frameCount - 1];
             break;
         }
+
+        case OP_INVOKE: {
+            ObjString* method = READ_STRING();
+            int arg_count = READ_BYTE();
+            if(!invoke(method, arg_count)){
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            frame = &vm.frames[vm.frameCount - 1];
+            break;
+        }
+
         case OP_CLOSURE:{
             ObjFunction* function = AS_FUNCTION(READ_CONST());
             ObjClosure* closure = newClosure(function);
@@ -458,6 +555,13 @@ static InterpretResult run(){
           frame = &vm.frames[vm.frameCount-1];
           break;
       }
+      case OP_CLASS:
+          push(OBJ_VAL(newClass(READ_STRING())));
+          break;
+
+        case OP_METHOD:
+            define_method(READ_STRING());
+            break;
     }
   }
   #undef READ_BYTE
@@ -468,15 +572,6 @@ static InterpretResult run(){
 }
 
 InterpretResult interpret(const char* source){
-//  Chunk chunk;
-//  init_chunk(&chunk);
-//
-//  if(!compile(source, &chunk)){
-//    free_chunk(&chunk);
-//    return INTERPRET_COMPILE_ERROR;
-//  }
-//  vm.chunk = &chunk;
-//  vm.ip = vm.chunk->code;
     ObjFunction* function = compile(source);
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 

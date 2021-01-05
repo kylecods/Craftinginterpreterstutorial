@@ -22,6 +22,7 @@ typedef struct{
   Value stack[STACK_MAX];//stack
   Value *stack_top; //the top or beginning of the stack
   Table strings; //for string interning
+  ObjString* init_string;
   Table globals; //for globals
   ObjUpvalue* open_upvalues;
 

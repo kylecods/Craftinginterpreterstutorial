@@ -1,8 +1,28 @@
 var start = clock();
-var sum = 0;
-var i;
-for (i = 0; i < 10000000; i = i + 1) {
-  sum = sum + i;
+//class
+class List {}
+//instantiation
+var list = List();
+list.val = 345;
+var string = "string";
+var concatenate = "concatenation";
+print(string + concatenate);
+
+//print on same line two or more values of different types
+print("Value is: ",list.val);
+
+func string(a){
+    print(a);
 }
-print sum;
-print clock() - start;
+
+
+var toString = string;
+toString("Success!!");
+
+//hex test
+var a = 0x11;
+print(a);
+
+//print "Success!!";
+
+print(clock() - start);

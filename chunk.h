@@ -17,11 +17,12 @@ typedef enum{//note: implement different op instr for comparison operators
   OP_SET_GLOBAL,
   OP_GET_UPVALUE,
   OP_SET_UPVALUE,
+  OP_GET_PROPERTY,
+  OP_SET_PROPERTY,
   OP_EQUAL,
   OP_GREATER,
   OP_LESS,
   OP_NEGATE,
-  OP_PRINT,
   OP_JUMP,
   OP_JUMP_IF_FALSE,
   OP_ADD,
@@ -31,9 +32,12 @@ typedef enum{//note: implement different op instr for comparison operators
   OP_NOT,
   OP_LOOP,
   OP_CALL,
+  OP_INVOKE,
   OP_CLOSURE,
   OP_CLOSE_UPVALUE,
-  OP_RETURN
+  OP_RETURN,
+  OP_CLASS,
+  OP_METHOD
 }Opcode;
 
 typedef struct{

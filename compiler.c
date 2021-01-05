@@ -81,14 +81,14 @@ typedef struct{
 }Upvalue;
 typedef enum {
    TYPE_FUNCTION,
-   TYPE_NATIVE,//@change
+   TYPE_INITIALIZER,
+   TYPE_METHOD,
    TYPE_SCRIPT
 }FunctionType;
 
 typedef struct Compiler{
     struct Compiler* enclosing;
     ObjFunction* function;
-    ObjNative* native; //@change
     FunctionType type;
     Local locals[UINT8_COUNT];
     int local_count;
@@ -96,7 +96,13 @@ typedef struct Compiler{
     int scope_depth;
 }Compiler;
 
+typedef struct ClassCompiler{
+    struct ClassCompiler* enclosing;
+    Token name;
+}ClassCompiler;
+
 Parser parser;
+ClassCompiler* current_class = NULL;
 Compiler* current = NULL;
 
 
@@ -179,7 +185,11 @@ static int emit_jmp(uint8_t instruction){
   return current_chunk()->count - 2;
 }
 static void emit_return() {
-    emit_byte(OP_NIL);
+    if(current->type == TYPE_INITIALIZER){
+        emit_bytes(OP_GET_LOCAL, 0);
+    } else {
+        emit_byte(OP_NIL);
+    }
     emit_byte(OP_RETURN);
 }
 static uint8_t make_constant(Value value){
@@ -208,7 +218,6 @@ static void patch_jmp(int offset){
 static void init_compiler(Compiler* compiler,FunctionType type){
     compiler->enclosing = current;
     compiler->function = NULL;
-    compiler->native = NULL;
     compiler->type = type;
     compiler->local_count = 0;
     compiler->scope_depth = 0;
@@ -223,8 +232,14 @@ static void init_compiler(Compiler* compiler,FunctionType type){
     Local* local = &current->locals[current->local_count++];
     local->depth = 0;
     local->is_captured = false;
-    local->name.length = 0;
-    local->name.start = "";
+    if(type != TYPE_FUNCTION) {
+        local->name.start = "this";
+        local->name.length = 4;
+    } else{
+        local->name.start = "";
+        local->name.length = 0;
+
+    }
 }
 
 
@@ -259,7 +274,7 @@ static void end_scope(){
   }
 }
 
-//foward declaration // many like this is not good.
+//foward declaration // many like this is not good. bruh dont do this in own..
 static void expression();
 static void statement();
 static void declaration();
@@ -277,6 +292,8 @@ static int resolve_upvalue(Compiler* compiler, Token* name);
 static void named_variable(Token name, bool can_assign);
 static void call(bool can_assign);
 static uint8_t identifier_constant(Token* name);
+static void decl_variable();
+static void class_declaration();
 
 
 
@@ -328,6 +345,39 @@ static void function(FunctionType type){
             emit_byte(compiler.upvalues[i].index);
         }
 
+}
+static void method(){
+    consume(TOKEN_IDENTIFIER, "Expect method name.");
+    uint8_t constant = identifier_constant(&parser.previous);
+    FunctionType type = TYPE_METHOD;
+    if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0){
+        type = TYPE_INITIALIZER;
+    }
+    function(type);
+    emit_bytes(OP_METHOD, constant);
+}
+static void class_declaration(){
+    consume(TOKEN_IDENTIFIER,"Expected class name.");
+    Token class_name = parser.previous;
+    uint8_t name_constant = identifier_constant(&parser.previous);
+    decl_variable();
+
+    emit_bytes(OP_CLASS, name_constant);
+    define_variable(name_constant);
+
+    ClassCompiler classCompiler;
+    classCompiler.name = parser.previous;
+    classCompiler.enclosing = current_class;
+    current_class = &classCompiler;//? bug maybe
+
+    named_variable(class_name, false);
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before the class body.");
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)){
+        method();
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after the class body.");
+    emit_byte(OP_POP);
+    current_class = current_class->enclosing;
 }
 static void fun_declaration(){
     uint8_t global = parse_variable("Expect function name.");
@@ -435,11 +485,11 @@ static void if_stmt(){
     if(match(TOKEN_ELSE)) statement();
     patch_jmp(else_jmp);
 }
-static void print_statement() {
-  expression();
-  consume(TOKEN_SEMICOLON, "Expect ';' after value.");
-  emit_byte(OP_PRINT);
-}
+//static void print_statement() {
+//  expression();
+//  consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+//  emit_byte(OP_PRINT);
+//}
 
 static void return_stmt(){
     if (current->type == TYPE_SCRIPT){
@@ -448,6 +498,9 @@ static void return_stmt(){
     if(match(TOKEN_SEMICOLON)){
         emit_return();
     } else{
+        if (current->type == TYPE_INITIALIZER){
+            error("Can't return a value from an initializer.");
+        }
         expression();
         consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
         emit_byte(OP_RETURN);
@@ -491,7 +544,9 @@ static void synchronize() {
   }
 }
 static void declaration() {
-    if(match(TOKEN_FUN)){
+    if(match(TOKEN_CLASS)){
+        class_declaration();
+    }else if(match(TOKEN_FUN)){
         fun_declaration();
     }else if(match(TOKEN_VAR)){
       var_decl();
@@ -510,10 +565,8 @@ static void declaration() {
 //             |block
 
 static void statement() {
-  if (match(TOKEN_PRINT)) {
-    print_statement();
-  }else if(match(TOKEN_FOR)){
-    for_stmt();
+    if(match(TOKEN_FOR)){
+         for_stmt();
   }else if(match(TOKEN_IF)){
     if_stmt();
   }else if(match(TOKEN_RETURN)){
@@ -562,6 +615,21 @@ static void call(bool can_assign){
     emit_bytes(OP_CALL, arg_count);
 }
 
+static void dot(bool can_assign){
+    consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
+    uint8_t name = identifier_constant(&parser.previous);
+    if(can_assign && match(TOKEN_EQUAL)){
+        expression();
+        emit_bytes(OP_SET_PROPERTY, name);
+    } else if(match(TOKEN_LEFT_PAREN)){
+        uint8_t arg_count = argument_list();
+        emit_bytes(OP_INVOKE, name);
+        emit_byte(arg_count);
+    }else{
+        emit_bytes(OP_GET_PROPERTY, name);
+    }
+}
+
 static void literal(bool can_assign) {
   switch (parser.previous.type) {
     case TOKEN_FALSE: emit_byte(OP_FALSE); break;
@@ -582,8 +650,23 @@ static void or_(bool can_assign) {
   patch_jmp(end_jump);
 }
 static void number(bool can_assign) {
-    double value = strtod(parser.previous.start, NULL);
+
+    // credit Dictu,https://github.com/dictu-lang/Dictu/blob/9fffbef4b19d0f0a8f0c2fa4ead70631b22d5c91/src/vm/compiler.c#L821
+    char* buffer  = malloc(sizeof(char)*(parser.previous.length + 1));
+    char* current = buffer;
+
+    for (int i = 0; i < parser.previous.length; i++) {
+        char c = parser.previous.start[i];
+
+        if (c != '_'){
+            *(current++) = c;
+        }
+    }
+    *current = '\0';
+//    double value = strtod(parser.previous.start, NULL);
+    double value = strtod(buffer, NULL);
     emit_constant(NUMBER_VAL(value));
+    free(buffer);
 }
 
 
@@ -618,6 +701,14 @@ static void variable(bool can_assign){
   named_variable(parser.previous, can_assign);
 }
 
+static void this_(bool can_assign){
+    if (current_class == NULL){
+        error("Can't use 'this' outside of a class.");
+        return;
+    }
+   variable(false);
+}
+
 static void unary(bool can_assign){
   TokenType operator_type = parser.previous.type;
   //compile the operand ('-' expr)
@@ -636,7 +727,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },      // TOKEN_LEFT_BRACE
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RIGHT_BRACE
   { NULL,     NULL,    PREC_NONE },       // TOKEN_COMMA
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_DOT
+  { NULL,     dot,    PREC_CALL },       // TOKEN_DOT
   { unary,    binary,  PREC_TERM },       // TOKEN_MINUS
   { NULL,     binary,  PREC_TERM },       // TOKEN_PLUS
   { NULL,     NULL,    PREC_NONE },       // TOKEN_SEMICOLON
@@ -665,7 +756,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_PRINT
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RETURN
   { NULL,     NULL,    PREC_NONE },       // TOKEN_SUPER
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_THIS
+  { this_,     NULL,    PREC_NONE },       // TOKEN_THIS
   { literal,     NULL,    PREC_NONE },       // TOKEN_TRUE
   { NULL,     NULL,    PREC_NONE },       // TOKEN_VAR
   { NULL,     NULL,    PREC_NONE },       // TOKEN_WHILE

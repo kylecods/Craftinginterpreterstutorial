@@ -79,6 +79,18 @@ static void blacken_object(Obj* object){
     printf(_RESET);
 #endif
     switch (object->type) {
+        case OBJ_BOUND_METHOD:{
+            ObjBoundMethod* bound = (ObjBoundMethod*)object;
+            mark_value(bound->receiver);
+            mark_object((Obj*)bound->method);
+            break;
+        }
+        case OBJ_CLASS:{
+            ObjClass* klass = (ObjClass*)object;
+            mark_object((Obj*)klass->name);
+            mark_table(&klass->methods);
+            break;
+        }
         case OBJ_CLOSURE:{
             ObjClosure* closure = (ObjClosure*)object;
             mark_object((Obj*)closure->function);
@@ -89,9 +101,14 @@ static void blacken_object(Obj* object){
         }
         case OBJ_FUNCTION:{
             ObjFunction* function = (ObjFunction*)object;
-
             mark_object((Obj*)function->name);
             mark_array(&function->chunk.constants);
+            break;
+        }
+        case OBJ_INSTANCE:{
+            ObjInstance* instance = (ObjInstance*)object;
+            mark_object((Obj*)instance->klass);
+            mark_table(&instance->fields);
             break;
         }
         case OBJ_UPVALUE:
@@ -112,6 +129,16 @@ static void free_object(Obj *object) {
     printf(_RESET);
 #endif
   switch (object->type) {
+      case OBJ_BOUND_METHOD:
+          FREE(ObjBoundMethod, object);
+          break;
+
+      case OBJ_CLASS:{
+          ObjClass* klass = (ObjClass*)object;
+          free_table(&klass->methods);
+          FREE(ObjClass, object);
+          break;
+      }
       case OBJ_CLOSURE:{
           ObjClosure* closure = (ObjClosure*)object;
           FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->upvalue_count);
@@ -122,6 +149,12 @@ static void free_object(Obj *object) {
           ObjFunction* function = (ObjFunction*)object;
           free_chunk(&function->chunk);
           FREE(ObjFunction, object);
+          break;
+      }
+      case OBJ_INSTANCE:{
+          ObjInstance* instance = (ObjInstance*)object;
+          free_table(&instance->fields);
+          FREE(ObjInstance, object);
           break;
       }
       case OBJ_NATIVE:{
@@ -152,6 +185,7 @@ static void mark_roots(){
     }
     mark_table(&vm.globals);
     mark_compiler_roots();
+    mark_object((Obj*)vm.init_string);
 }
 static void trace_references(){
     while (vm.gray_count > 0){

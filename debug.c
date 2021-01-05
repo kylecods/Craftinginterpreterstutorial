@@ -20,6 +20,16 @@ static int constant_instr(const char* name, Chunk *chunk, int offset){
   printf("'\n");
   return offset + 2;
 }
+
+static int invoke_instruction(const char* name, Chunk* chunk, int offset){
+    uint8_t constant = chunk->code[offset+1];
+    uint8_t arg_count = chunk->code[offset + 2];
+    __print_with_color(_MAGENTA, "%-16s (%d args) %4d '",name, arg_count, constant);
+    printf(_RESET);
+    print_value(chunk->constants.values[constant]);
+    printf("'\n");
+    return offset + 3;
+}
 static int simple_instr(const char* name, int offset){
   printf("%s\n", name);
   return offset + 1;
@@ -41,18 +51,21 @@ static int jump_instr(const char* name, int sign, Chunk* chunk, int offset){
 
 int disassemble_instr(Chunk *chunk, int offset) {
   /* code */
-  printf("\x1B[35m");
+  printf(_MAGENTA);
   printf("%04d ", offset);
+
 
   if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
     /* code */
     printf("  | ");
+
   }else{
     printf("%4d ", chunk->lines[offset]);
+
   }
 
   uint8_t instr = chunk->code[offset];
-
+    printf(_RESET);
   switch (instr) {
     case OP_CONSTANT:
       return constant_instr("OP_CONSTANT", chunk, offset);
@@ -79,6 +92,12 @@ int disassemble_instr(Chunk *chunk, int offset) {
       case OP_SET_UPVALUE:
           return byte_instr("OP_SET_UPVALUE", chunk,offset);
 
+      case OP_GET_PROPERTY:
+          return constant_instr("OP_GET_PROPERTY", chunk, offset);
+
+      case OP_SET_PROPERTY:
+          return constant_instr("OP_SET_PROPERTY", chunk, offset);
+
       case OP_EQUAL:
         return simple_instr("OP_EQUAL", offset);
     case OP_GREATER:
@@ -97,8 +116,6 @@ int disassemble_instr(Chunk *chunk, int offset) {
         return simple_instr("OP_NEGATE", offset);
     case OP_NOT:
         return simple_instr("OP_NOT", offset);
-    case OP_PRINT:
-        return simple_instr("OP_PRINT", offset);
     case OP_JUMP:
       return jump_instr("OP_JUMP", 1, chunk, offset);
     case OP_JUMP_IF_FALSE:
@@ -107,6 +124,10 @@ int disassemble_instr(Chunk *chunk, int offset) {
       return jump_instr("OP_LOOP", -1, chunk, offset);
       case OP_CALL:
           return byte_instr("OP_CALL", chunk, offset);
+
+      case OP_INVOKE:
+          return invoke_instruction("OP_INVOKE",chunk, offset);
+
       case OP_CLOSURE:{
         offset++;
         uint8_t constant = chunk->code[offset++];
@@ -128,6 +149,12 @@ int disassemble_instr(Chunk *chunk, int offset) {
           return simple_instr("OP_CLOSE_UPVALUE", offset);
     case OP_RETURN:
       return simple_instr("OP_RETURN", offset);
+
+      case OP_CLASS:
+          return constant_instr("OP_CLASS", chunk, offset);
+
+      case OP_METHOD:
+          return constant_instr("OP_METHOD", chunk, offset);
     default:
       printf("Unknown opcode %d\n", instr);
       return offset + 1;

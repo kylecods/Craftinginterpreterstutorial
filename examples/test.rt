@@ -18,7 +18,7 @@ func sub(x,y){
 var add_logger = logger(add);
 var sub_logger = logger(sub);
 
-add_logger(3,3);
+add_logger((6+1),0);
 add_logger(4,5);
 
 sub_logger(10,5);

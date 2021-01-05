@@ -1,0 +1,19 @@
+var start = clock();
+class Scone{
+    //init(coffee){
+      //  this.coffee = coffee;
+    //}
+   topping(berries, sweets){
+        print("scone with ", berries," and ", sweets);
+   }
+}
+
+var s = Scone();
+//scone.property = 0x0F;
+s.topping("berries", "sweets");
+
+print(clock() - start);
+//for(var i = 0; i < scone.property; i = i+1){
+  //  print("Val is: ", i);
+//}
+//print("this");

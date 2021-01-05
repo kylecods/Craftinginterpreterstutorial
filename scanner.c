@@ -4,6 +4,9 @@
 #include "common.h"
 #include "scanner.h"
 
+//scanner: identify char from string and store each char as token
+
+
 //gives us improvements to the tokenizer we wrote
 typedef struct{
   const char* start;
@@ -29,6 +32,9 @@ static bool is_alpha(char c){
 
 static bool isDigit(char c){
   return c >= '0' && c <= '9';
+}
+static bool isHex(char c){
+    return ((c>= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || (c == '_'));
 }
 static bool is_at_end(){
   return *scanner.current == '\0';
@@ -126,7 +132,7 @@ static TokenType identifier_type(){
     case 'i': return check_keyword(1,1, "f", TOKEN_IF);
     case 'n': return check_keyword(1,2, "il", TOKEN_NIL);
     case 'o': return check_keyword(1,1, "r", TOKEN_OR);
-    case 'p': return check_keyword(1,4, "rint", TOKEN_PRINT);
+//    case 'p': return check_keyword(1,4, "rint", TOKEN_PRINT);
     case 'r': return check_keyword(1,5, "eturn", TOKEN_RETURN);
     case 's': return check_keyword(1,4, "uper", TOKEN_SUPER);
     case 't':
@@ -166,6 +172,20 @@ static Token number(){
   }
   return make_token(TOKEN_NUMBER);
 }
+//hex
+static Token hex_number(){
+    while (peek() == '_'){
+        advance();
+    }
+    if (peek() == '0') advance();
+    if (peek() == 'x' || peek() == 'X'){
+        advance();
+        if (!isHex(peek())) return error_token("Invalid hex literal");
+        while (isHex(peek())) advance();
+        return make_token(TOKEN_NUMBER);
+    } else return number();
+}
+
 //string
 Token string(){
   while (peek() != '"' && !is_at_end()){
@@ -189,7 +209,7 @@ Token scan_token(){
 
   char c = advance(); //next token
   if(is_alpha(c)) return identifier();//reserved words and identifiers
-  if(isDigit(c)) return number();//digits
+  if(isDigit(c)) return hex_number();//digits
 
   switch(c){
     case '(': return make_token(TOKEN_LEFT_PAREN);

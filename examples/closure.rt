@@ -2,8 +2,8 @@ var start = clock();
 func html_tag(tag){
 
     func wrap_text(msg){
-        print "<" + tag + ">" + msg + "</" + tag + ">";
-        //printfln("<%.3g>",tag); // c print per line...
+        //print "<" + tag + ">" + msg + "</" + tag + ">";
+        println("<", tag, ">" , msg, "</", tag , ">");
     }
 
     return wrap_text;
