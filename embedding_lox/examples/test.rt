@@ -1,0 +1,25 @@
+//Example by Corey Schafer Youtube channel
+
+func logger(fun){
+    func log_func(x,y){
+      print fun(x,y);
+    }
+    return log_func;
+}
+
+func add(x,y){
+    return x+y;
+}
+
+func sub(x,y){
+    return x - y;
+}
+
+var add_logger = logger(add);
+var sub_logger = logger(sub);
+
+add_logger(3,3);
+add_logger(4,5);
+
+sub_logger(10,5);
+sub_logger(20,10);

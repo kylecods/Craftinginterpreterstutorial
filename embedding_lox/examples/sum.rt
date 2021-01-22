@@ -1,0 +1,10 @@
+var start = clock();
+//var sum = 0;
+var i = 0;
+//@fix for loop bugged
+for (i; i <= 10; i = i + 1) {
+  //sum = sum + i;
+  print i;
+}
+//print sum;
+print clock() - start;
