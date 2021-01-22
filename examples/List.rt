@@ -1,0 +1,108 @@
+
+class Node{
+    init(value){
+        this.value = value;
+        this.next = nil;
+        this.previous = nil;
+    }
+}
+
+class List{
+    init(){
+        this.head = nil;
+        this.tail = nil;
+        this._length = 0;
+    }
+    push(value){
+       var node = Node(value);
+       if(this.head == nil){
+            this.head = node;
+            this.tail = node;
+       }else{
+          node.previous = this.tail;
+          this.tail.next = node;
+          this.tail = node;
+       }
+       this._length = this._length+1;
+       return this;
+    }
+    pop(){
+        if(this.tail == nil){
+            return;
+        }
+        var node = this.tail;
+        var previous = node.previous;
+        this.tail = previous;
+        if(previous != nil){
+            previous.next = nil;
+        }else{
+            this.head = nil;
+        }
+        this._length = this._length - 1;
+        return node.value;
+    }
+
+    //buggy
+    get(n){
+        var node = this.head;
+        var i = 0;
+        while(node != nil){
+            if(i == n){
+                return node.value;
+            }
+            node = node.next;
+            i = i + 1;
+        }
+        return nil;
+    }
+
+    length(){ return this._length;}
+
+    last(){
+        if(this.tail != nil){
+            return this.tail.value;
+        }
+        return nil;
+    }
+    isEmpty(){
+        return (this._length == 0);
+    }
+
+
+}
+
+
+//Credit Data structures and Algorithms in Java book
+class ArrayStack{
+    init(){
+        //can afford to be dynamic
+        //TODO: add size checking of built in list
+        this.data = [];
+        this.t = -1;
+    }
+    size(){
+        return (this.t+1);
+    }
+    isEmpty(){
+        return (this.t == -1);
+    }
+    push(element){
+        //increment t before adding
+        this.t = this.t + 1;
+        append(this.data, element);
+        //or
+        //this.data[this.t] = element;
+    }
+    top(){
+        if(this.isEmpty()){ return nil;}
+        return this.data[this.t];
+    }
+    pop(){
+        if(this.isEmpty()){ return nil;}
+        var answer = this.data[this.t];
+        this.data[this.t] = nil;
+        this.t = this.t - 1;
+        return answer;
+    }
+}
+

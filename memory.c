@@ -79,6 +79,14 @@ static void blacken_object(Obj* object){
     printf(_RESET);
 #endif
     switch (object->type) {
+        case OBJ_LIST:{
+            ObjList* list = (ObjList*)object;
+            for (int i = 0; i < list->values.count; i++) {
+                mark_value(list->values.values[i]);
+            }
+            break;
+        }
+
         case OBJ_BOUND_METHOD:{
             ObjBoundMethod* bound = (ObjBoundMethod*)object;
             mark_value(bound->receiver);
@@ -129,6 +137,12 @@ static void free_object(Obj *object) {
     printf(_RESET);
 #endif
   switch (object->type) {
+      case OBJ_LIST:{
+          ObjList* list = (ObjList*)object;
+          free_val_array(&list->values);
+          FREE(ObjList, object);
+          break;
+      }
       case OBJ_BOUND_METHOD:
           FREE(ObjBoundMethod, object);
           break;

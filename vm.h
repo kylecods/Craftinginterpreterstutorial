@@ -6,6 +6,7 @@
 #include "value.h"
 #include "object.h"
 
+
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
@@ -24,8 +25,10 @@ typedef struct{
   Table strings; //for string interning
   ObjString* init_string;
   Table globals; //for globals
+  Table listMethods;
   ObjUpvalue* open_upvalues;
 
+  uint8_t next_op_wide;
   size_t bytes_alocated;//running total of no of bytes of managed memory
   size_t next_gc;//threshold that triggers next collection
 
@@ -43,9 +46,19 @@ typedef enum{
 
 extern VM vm;
 
+
 void init_vm();
 void free_vm();
 void push(Value value);
 Value pop();
 InterpretResult interpret(const char* source);
+
+
+void append_to_list(ObjList* list, Value value);
+bool is_valid_list_index(ObjList* list, int index);
+void delete_from_list(ObjList* list, int index);
+void runtime_error(const char *format, ...);
+
+
+
 #endif

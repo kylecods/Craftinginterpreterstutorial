@@ -25,6 +25,12 @@ static Obj* allocate_object(size_t size, ObjType type){
 #endif
   return object;
 }
+ObjList* newList(){
+    ObjList* list = ALLOCATE_OBJ(ObjList,OBJ_LIST);
+    init_val_array(&list->values);
+    return list;
+}
+
 ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method){
     ObjBoundMethod* bound = ALLOCATE_OBJ(ObjBoundMethod,OBJ_BOUND_METHOD);
     bound->receiver = receiver;
@@ -73,7 +79,6 @@ ObjNative* newNative(NativeFn function){
     native->function = function;
     return native;
 }
-
 
 // allocate space for string object
 static ObjString* allocate_string(char* chars, int length,uint32_t hash){
@@ -143,6 +148,19 @@ static void printFunction(ObjFunction* function){
 
 void print_object(Value value){
   switch(OBJ_TYPE(value)){
+      case OBJ_LIST: {
+          ObjList *list = AS_LIST(value);
+          printf("[");
+          for (int i = 0; i < list->values.count; i++) {
+              print_value(list->values.values[i]);
+              if (i != list->values.count - 1) {
+                  printf(", ");
+              }
+          }
+          printf("]");
+          break;
+      }
+
       case OBJ_BOUND_METHOD:
           printFunction(AS_BOUND_METHOD(value)->method->function);
           break;

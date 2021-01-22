@@ -1,28 +1,80 @@
-var start = clock();
-//class
-class List {}
-//instantiation
-var list = List();
-list.val = 345;
-var string = "string";
-var concatenate = "concatenation";
-print(string + concatenate);
-
-//print on same line two or more values of different types
-print("Value is: ",list.val);
-
-func string(a){
-    print(a);
+//Credit Data structures and Algorithms in Java book
+class ArrayStack{
+    init(){
+        //can afford to be dynamic
+        this.data = [];
+        this.t = -1;
+    }
+    size(){
+        return (this.t+1);
+    }
+    isEmpty(){
+        return (this.t == -1);
+    }
+    push(element){
+        //increment t before adding
+        this.t = this.t + 1;
+        append(this.data, element);
+        //or
+        //this.data[this.t] = element;
+    }
+    top(){
+        if(this.isEmpty()){ return nil;}
+        return this.data[this.t];
+    }
+    pop(){
+        if(this.isEmpty()){ return nil;}
+        var answer = this.data[this.t];
+        //this.data[this.t] = nil;
+        //we want it to be empty. delete at end of list
+        delete(this.data, this.t);
+        this.t = this.t - 1;
+        return answer;
+    }
 }
 
 
-var toString = string;
-toString("Success!!");
 
-//hex test
-var a = 0x11;
-print(a);
+var PUSH = 0x41;
+var ADD = 0x42;
+var MINUS = 0x43;
+var prog = [
+                PUSH, 20,
+                PUSH, 10,
+                MINUS,
+                PUSH, 10,
+                ADD
+               ];
 
-//print "Success!!";
+var programCounter = 0;
+var stackPointer = 0;
+var stack = ArrayStack();
+while(programCounter < prog.length()){
+    var currentInstruction = prog[programCounter];
+        if(currentInstruction == 0x41){
+             stack.push(prog[programCounter+1]);
+             //print("=> ",currentInstruction," ", prog[programCounter+1]);
+             print("00:  ",stack.data);
+             programCounter = programCounter+1;
 
-print(clock() - start);
+        }else if(currentInstruction == 0x42){
+             var right = stack.pop();
+             var left = stack.pop();
+             stack.push(left+right);
+             //print("=> ",currentInstruction);
+             print("00:  ",stack.data);
+        }else if(currentInstruction == 0x43){
+             var right = stack.pop();
+             var left = stack.pop();
+             stack.push(left-right);
+             //print("=> ",currentInstruction);
+             print("00:  ",stack.data);
+        }
+        programCounter = programCounter + 1;
+}
+//input test
+var name = input("Enter your name: ");
+print("Yaah! Nice to meet you, ", name);
+
+
+        

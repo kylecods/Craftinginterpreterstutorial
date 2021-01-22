@@ -18,6 +18,7 @@ static int constant_instr(const char* name, Chunk *chunk, int offset){
   printf("%-16s %4d '", name, constant);
   print_value(chunk->constants.values[constant]);
   printf("'\n");
+    printf(_RESET);
   return offset + 2;
 }
 
@@ -25,9 +26,10 @@ static int invoke_instruction(const char* name, Chunk* chunk, int offset){
     uint8_t constant = chunk->code[offset+1];
     uint8_t arg_count = chunk->code[offset + 2];
     __print_with_color(_MAGENTA, "%-16s (%d args) %4d '",name, arg_count, constant);
-    printf(_RESET);
+
     print_value(chunk->constants.values[constant]);
     printf("'\n");
+    printf(_RESET);
     return offset + 3;
 }
 static int simple_instr(const char* name, int offset){
@@ -38,6 +40,7 @@ static int simple_instr(const char* name, int offset){
 static int byte_instr(const char* name, Chunk* chunk, int offset){
   uint8_t slot = chunk->code[offset + 1];
   printf("%-16s %4d\n",name, slot);
+    printf(_RESET);
   return offset + 2;
 }
 
@@ -45,6 +48,7 @@ static int jump_instr(const char* name, int sign, Chunk* chunk, int offset){
   uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
   jump |= chunk->code[offset + 2];
   printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+    printf(_RESET);
 
   return offset + 3;
 }
@@ -65,7 +69,7 @@ int disassemble_instr(Chunk *chunk, int offset) {
   }
 
   uint8_t instr = chunk->code[offset];
-    printf(_RESET);
+
   switch (instr) {
     case OP_CONSTANT:
       return constant_instr("OP_CONSTANT", chunk, offset);
@@ -98,6 +102,11 @@ int disassemble_instr(Chunk *chunk, int offset) {
       case OP_SET_PROPERTY:
           return constant_instr("OP_SET_PROPERTY", chunk, offset);
 
+
+      case OP_GET_SUPER:
+          return constant_instr("OP_GET_SUPER", chunk, offset);
+
+
       case OP_EQUAL:
         return simple_instr("OP_EQUAL", offset);
     case OP_GREATER:
@@ -128,6 +137,19 @@ int disassemble_instr(Chunk *chunk, int offset) {
       case OP_INVOKE:
           return invoke_instruction("OP_INVOKE",chunk, offset);
 
+      case OP_BUILD_LIST:
+          return simple_instr("OP_BUILD_LIST", offset);
+
+      case OP_INDEX_SUBSCR:
+          return simple_instr("OP_INDEX_SUBSCR", offset);
+
+      case OP_STORE_SUBSCR:
+          return simple_instr("OP_STORE_SUBSCR", offset);
+
+
+      case OP_SUPER_INVOKE:
+          return invoke_instruction("OP_SUPER_INVOKE", chunk,offset);
+
       case OP_CLOSURE:{
         offset++;
         uint8_t constant = chunk->code[offset++];
@@ -153,6 +175,8 @@ int disassemble_instr(Chunk *chunk, int offset) {
       case OP_CLASS:
           return constant_instr("OP_CLASS", chunk, offset);
 
+      case OP_INHERIT:
+          return simple_instr("OP_INHERIT", offset);
       case OP_METHOD:
           return constant_instr("OP_METHOD", chunk, offset);
     default:

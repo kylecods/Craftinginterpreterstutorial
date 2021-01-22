@@ -54,11 +54,17 @@ typedef enum{
   PREC_AND, // and
   PREC_EQUALITY, // == !=
   PREC_COMPARISON, //< > <= >=
-  PREC_TERM, //+ -
+  PREC_BITWISE_OR, // |
+  PREC_BITWISE_XOR, // ^
+  PREC_BITWISE_AND, // &
+  PREC_LEFT_SHIFT, // <<
+  PREC_RIGHT_SHIFT, // >>
+  PREC_TERM, // + -
   PREC_FACTOR, // * /
-  PREC_UNARY, // ! -
-  PREC_CALL, // . ()
+  PREC_UNARY, // ! -, pre ++, pre --
+  PREC_CALL, // . () []
   PREC_PRIMARY
+
 } Precedence;
 
 typedef void (*ParseFn)(bool can_assign);
@@ -99,6 +105,7 @@ typedef struct Compiler{
 typedef struct ClassCompiler{
     struct ClassCompiler* enclosing;
     Token name;
+    bool has_super_class;
 }ClassCompiler;
 
 Parser parser;
@@ -293,6 +300,10 @@ static void named_variable(Token name, bool can_assign);
 static void call(bool can_assign);
 static uint8_t identifier_constant(Token* name);
 static void decl_variable();
+static void variable(bool can_assign);
+static bool identifiers_equal(Token* a, Token* b);
+static void add_local(Token name);
+static Token synthetic_token(const char* text);
 static void class_declaration();
 
 
@@ -367,8 +378,23 @@ static void class_declaration(){
 
     ClassCompiler classCompiler;
     classCompiler.name = parser.previous;
+    classCompiler.has_super_class = false;
     classCompiler.enclosing = current_class;
-    current_class = &classCompiler;//? bug maybe
+    current_class = &classCompiler;
+
+    if(match(TOKEN_LESS)){
+        consume(TOKEN_IDENTIFIER,"Expect superclass name.");
+        variable(false);
+        if(identifiers_equal(&class_name, &parser.previous)){
+            error("A class can't inherit from itself.");
+        }
+        begin_scope();
+        add_local(synthetic_token("super"));
+        define_variable(0);
+        named_variable(class_name,false);
+        emit_byte(OP_INHERIT);
+        classCompiler.has_super_class = true;
+    }
 
     named_variable(class_name, false);
     consume(TOKEN_LEFT_BRACE, "Expect '{' before the class body.");
@@ -377,6 +403,10 @@ static void class_declaration(){
     }
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after the class body.");
     emit_byte(OP_POP);
+
+    if (classCompiler.has_super_class){
+        end_scope();
+    }
     current_class = current_class->enclosing;
 }
 static void fun_declaration(){
@@ -390,7 +420,8 @@ static void var_decl() {
 
   if(match(TOKEN_EQUAL)){
     expression();
-  }else{
+  }
+  else{
     emit_byte(OP_NIL);
   }
   consume(TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
@@ -603,10 +634,16 @@ static void binary(bool can_assign) {
     case TOKEN_GREATER_EQUAL: emit_bytes(OP_LESS, OP_NOT); break;
     case TOKEN_LESS: emit_byte(OP_LESS); break;
     case TOKEN_LESS_EQUAL: emit_bytes(OP_GREATER, OP_NOT); break;
+    case TOKEN_PIPE: emit_byte(OP_BITWISE_OR); break;
+    case TOKEN_CARET: emit_byte(OP_BITWISE_XOR); break;
+      case TOKEN_AMPERSAND: emit_byte(OP_BITWISE_AND); break;
+    case TOKEN_RIGHT_SHIFT: emit_byte(OP_RIGHT_SHIFT); break;
+    case TOKEN_LEFT_SHIFT: emit_byte(OP_LEFT_SHIFT); break;
     case TOKEN_PLUS: emit_byte(OP_ADD); break;
     case TOKEN_MINUS: emit_byte(OP_SUB); break;
     case TOKEN_STAR: emit_byte(OP_MUL); break;
     case TOKEN_SLASH: emit_byte(OP_DIV); break;
+
   }
 }
 
@@ -615,13 +652,56 @@ static void call(bool can_assign){
     emit_bytes(OP_CALL, arg_count);
 }
 
+static void list(bool can_assign){
+    int item_count = 0;
+//    if(!check(TOKEN_RIGHT_BRACKET)){
+        do {
+            if(check(TOKEN_RIGHT_BRACKET)){
+                break;
+            }
+//            parse_precedence(PREC_OR);
+//            if (item_count == UINT8_COUNT){
+//                error("Cannot have more than 256 items in a list literal.");
+//            }
+            expression();
+            item_count++;
+        } while (match(TOKEN_COMMA));
+//    }
+    emit_bytes(OP_BUILD_LIST,item_count);
+    consume(TOKEN_RIGHT_BRACKET, "Expect ']' after list literal.");
+//    if(item_count < 256){
+//        emit_bytes(OP_BUILD_LIST,item_count);
+//    } else{
+//        emit_bytes(OP_WIDE,OP_BUILD_LIST);
+//        emit_byte((uint8_t)(item_count >> 8));
+//        emit_byte((uint8_t)item_count);
+//    }
+
+//    emit_byte(item_count);
+
+
+}
+
+static void subscript(bool can_assign){
+    parse_precedence(PREC_OR);
+    consume(TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
+
+    if(can_assign && match(TOKEN_EQUAL)){
+        expression();
+        emit_byte(OP_STORE_SUBSCR);
+    } else{
+        emit_byte(OP_INDEX_SUBSCR);
+    }
+}
+
+
 static void dot(bool can_assign){
     consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
     uint8_t name = identifier_constant(&parser.previous);
     if(can_assign && match(TOKEN_EQUAL)){
         expression();
         emit_bytes(OP_SET_PROPERTY, name);
-    } else if(match(TOKEN_LEFT_PAREN)){
+    } else if(match(TOKEN_LEFT_PAREN)) {
         uint8_t arg_count = argument_list();
         emit_bytes(OP_INVOKE, name);
         emit_byte(arg_count);
@@ -700,7 +780,34 @@ static void named_variable(Token name, bool can_assign) {
 static void variable(bool can_assign){
   named_variable(parser.previous, can_assign);
 }
+static Token synthetic_token(const char* text){
+    Token token;
+    token.start = text;
+    token.length = (int)strlen(text);
+    return token;
+}
+static void super_(bool can_assign){
+    if(current_class == NULL){
+        error("Can't use 'super' outside of a class");
+    } else if(!current_class->has_super_class){
+        error("Can't use 'super' in a class with no superclass.");
+    }
 
+    consume(TOKEN_DOT, "Expect '.' after 'super'.");
+    consume(TOKEN_IDENTIFIER, "Expect superclass method name.");
+    uint8_t name = identifier_constant(&parser.previous);
+    named_variable(synthetic_token("this"), false);
+    if(match(TOKEN_LEFT_PAREN)){
+        uint8_t arg_count = argument_list();
+        named_variable(synthetic_token("super"),false);
+        emit_bytes(OP_SUPER_INVOKE, name);
+        emit_byte(arg_count);
+    } else{
+        named_variable(synthetic_token("super"), false);
+        emit_bytes(OP_GET_SUPER,name);
+    }
+
+}
 static void this_(bool can_assign){
     if (current_class == NULL){
         error("Can't use 'this' outside of a class.");
@@ -725,7 +832,9 @@ ParseRule rules[] = {
   [TOKEN_LEFT_PAREN] = { grouping, call,    PREC_CALL},       // TOKEN_LEFT_PAREN
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RIGHT_PAREN
   { NULL,     NULL,    PREC_NONE },      // TOKEN_LEFT_BRACE
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_RIGHT_BRACE
+  { NULL,     NULL,    PREC_NONE },      // TOKEN_RIGHT_BRACE
+  { list,     subscript,    PREC_CALL },       // TOKEN_LEFT_BRACKET
+  { NULL,     NULL,    PREC_NONE },       // TOKEN_RIGHT_BRACKET
   { NULL,     NULL,    PREC_NONE },       // TOKEN_COMMA
   { NULL,     dot,    PREC_CALL },       // TOKEN_DOT
   { unary,    binary,  PREC_TERM },       // TOKEN_MINUS
@@ -734,6 +843,11 @@ ParseRule rules[] = {
   { NULL,     binary,  PREC_FACTOR },     // TOKEN_SLASH
   { NULL,     binary,  PREC_FACTOR },     // TOKEN_STAR
   { unary,     NULL,    PREC_NONE },       // TOKEN_BANG
+  { NULL,     binary,    PREC_BITWISE_AND},       // TOKEN_AMPERSAND
+  { NULL,     binary,    PREC_BITWISE_OR},       // TOKEN_PIPE
+  { NULL,     binary,    PREC_BITWISE_XOR},       // TOKEN_CARET
+  { NULL,     binary,    PREC_LEFT_SHIFT},       // TOKEN_LEFT_SHIFT
+  { NULL,     binary,    PREC_RIGHT_SHIFT},       // TOKEN_RIGHT_SHIFT
   { NULL,     binary,    PREC_EQUALITY },       // TOKEN_BANG_EQUAL
   { NULL,     NULL,    PREC_NONE },       // TOKEN_EQUAL
   { NULL,     binary,    PREC_EQUALITY },       // TOKEN_EQUAL_EQUAL
@@ -755,7 +869,7 @@ ParseRule rules[] = {
   { NULL,     or_,    PREC_OR },       // TOKEN_OR
   { NULL,     NULL,    PREC_NONE },       // TOKEN_PRINT
   { NULL,     NULL,    PREC_NONE },       // TOKEN_RETURN
-  { NULL,     NULL,    PREC_NONE },       // TOKEN_SUPER
+   { super_,     NULL,    PREC_NONE },       // TOKEN_SUPER
   { this_,     NULL,    PREC_NONE },       // TOKEN_THIS
   { literal,     NULL,    PREC_NONE },       // TOKEN_TRUE
   { NULL,     NULL,    PREC_NONE },       // TOKEN_VAR

@@ -1,99 +1,33 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include <time.h>
-#include <math.h>
+
 
 #include "common.h"
 #include "debug.h"
 #include "vm.h"
 #include "compiler.h"
-#include "object.h"
 #include "memory.h"
-
-
-
-
-
+#include "native.h"
 
 
 
 
 VM vm;//should be a pointer for multiple instances and dont make a it global variable
-static void runtime_error(const char *format, ...);
-static Value cprint_native(int arg_count,Value* args);
 
-static char* format_type(char* args){
-         if(strcmp(args,"%s") == 0){
-        return "%s";
-    }else if(strcmp(args,"%g") == 0){
-        return "%g";
-    }else{
-        return "format is wrong";
-         }
-
+static void reset_stack() {
+    /* code */
+    vm.stack_top = vm.stack;
+    vm.frameCount = 0;
+    vm.open_upvalues = NULL;
 }
+void runtime_error(const char *format, ...){
+    va_list args;
+            va_start(args, format);
+    vfprintf(stderr, format, args);
 
-
-/*
- * Things ive seen needed for a language to be complete.
- * IO e.g printf, FILE*, etc
- * */
-static Value clock_native(int arg_count, Value* args) {
-    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-}
-static Value sin_native(int arg_count, Value* args){
-    double d = AS_NUMBER(*args);
-    return NUMBER_VAL((double)sin(d));
-}
-
-static Value floor_native(int arg_count, Value* args){
-    double d = AS_NUMBER(*args);
-    return NUMBER_VAL((double)floor(d));
-}
-
-static Value strlen_native(int arg_count, Value* args){
-    char *f = AS_CSTRING(*args++);
-    return NUMBER_VAL((double)strlen(f));
-}
-static Value print_native(int arg_count,Value* args){
-    //pass in list of arguments and print them out on one line
-    //if exhausted the number of arguments skip a line
-        if(arg_count == 0){
-            printf("\n");
-            return NIL_VAL;
-        }
-        for (int i = 0; i < arg_count; i++){
-            Value value = args[i];
-            print_value(value);
-            if (i == arg_count-1){
-                printf("\n");
-            }
-        }
-
-    return NIL_VAL;
-}
-static void  reset_stack() {
-  /* code */
-  vm.stack_top = vm.stack;
-  vm.frameCount = 0;
-  vm.open_upvalues = NULL;
-}
-//static inline ObjFunction* get_framefunction(CallFrame* frame) {
-//    if (frame->function->type == OBJ_FUNCTION){
-//        return (ObjFunction*)frame->function;
-//    } else{
-//        return ((ObjClosure*)frame->function)->function;
-//    }
-//
-//}
-
-static void runtime_error(const char *format, ...){
-  va_list args;
-  va_start(args, format);
-  vfprintf(stderr, format, args);
-  va_end(args);
-  fputs("\n", stderr);
+            va_end(args);
+    fputs("\n", stderr);
 
     for (int i = vm.frameCount - 1; i >= 0; i--) {
         CallFrame* frame = &vm.frames[i];
@@ -108,17 +42,31 @@ static void runtime_error(const char *format, ...){
         }
     }
 
-  CallFrame* frame = &vm.frames[vm.frameCount - 1];
-  size_t instr = frame->ip - frame->closure->function->chunk.code - 1;
-  int line = frame->closure->function->chunk.lines[instr];
-  fprintf(stderr, "[line %d] in script\n", line);
+    CallFrame* frame = &vm.frames[vm.frameCount - 1];
+    size_t instr = frame->ip - frame->closure->function->chunk.code - 1;
+    int line = frame->closure->function->chunk.lines[instr];
+    fprintf(stderr, "[line %d] in script\n", line);
 
-  reset_stack();
+    reset_stack();
 }
-static void define_native(const char* name, NativeFn function) {
+
+//native methods
+static Value length_method(int arg_count, Value* args){
+    if(arg_count != 0){
+        runtime_error("Expected no arguments but got %d.", arg_count);
+        return NIL_VAL;
+    }
+    ObjList* list = AS_LIST(args[0]);
+    return NUMBER_VAL(list->values.count);
+}
+
+
+
+
+static void define_ntv_methods(const char* name, NativeFn function) {
     push(OBJ_VAL(copy_string(name, (int)strlen(name))));
     push(OBJ_VAL(newNative(function)));
-    table_set(&vm.globals, AS_STRING(vm.stack[0]),vm.stack[1]);
+    table_set(&vm.listMethods, AS_STRING(vm.stack[0]),vm.stack[1]);
     pop();
     pop();
 }
@@ -132,23 +80,26 @@ void init_vm(){
   vm.gray_capacity = 0;
   vm.gray_stack = NULL;
 
+  vm.next_op_wide--;
   init_table(&vm.globals);
   init_table(&vm.strings);
+  init_table(&vm.listMethods);
   vm.init_string = NULL;
   vm.init_string = copy_string("init",4);
 
 
-  define_native("clock", clock_native);
-  define_native("sin", sin_native);
-    define_native("floor", floor_native);
-    define_native("strlength", strlen_native);
-    define_native("print", print_native);
+  //native function definition
+  define_all_natives();
+  //native method definition
+  define_ntv_methods("length", length_method);
+
 }
 
 void free_vm() {
   /* code */
   free_table(&vm.globals);
   free_table(&vm.strings);
+  free_table(&vm.listMethods);
   vm.init_string = NULL;
   free_objects();
 }
@@ -225,6 +176,38 @@ static bool call_value(Value callee, int arg_count) {
     runtime_error("Can only call functions and classes.");
     return false;
 }
+static bool call_native_methods(Value val, int arg_count){
+    NativeFn native = AS_NATIVE(val);
+    Value result = native(arg_count, vm.stack_top-arg_count-1);
+    vm.stack_top -= arg_count + 1;
+    push(result);
+    return true;
+}
+
+void append_to_list(ObjList* list, Value value){
+    write_val_array(&list->values,value);
+}
+
+void store_to_list(ObjList* list, int index, Value value){
+    list->values.values[index] = value;
+}
+Value index_from_list(ObjList* list, int index){
+    return list->values.values[index];
+}
+void delete_from_list(ObjList* list, int index){
+    for (int i = index; i < list->values.count-1; i++) {
+        list->values.values[i] = list->values.values[i+1];
+    }
+    list->values.values[list->values.count - 1] = NIL_VAL;
+    list->values.count--;
+}
+
+bool is_valid_list_index(ObjList* list, int index){
+    if (index < 0 || index > list->values.count - 1){
+        return false;
+    }
+    return true;
+}
 
 static bool invoke_from_class(ObjClass* klass, ObjString* name, int arg_count){
     Value method;
@@ -237,17 +220,28 @@ static bool invoke_from_class(ObjClass* klass, ObjString* name, int arg_count){
 
 static bool invoke(ObjString* name, int arg_count){
     Value receiver = peek(arg_count);
-    if(!IS_INSTANCE(receiver)){
-        runtime_error("Only instances have methods.");
+//    if(!IS_INSTANCE(receiver)){
+//        runtime_error("Only instances have methods.");
+//        return false;
+//    }
+    if(IS_LIST(receiver)){
+        Value value;
+        if(table_get(&vm.listMethods, name, &value)){
+//            vm.stack_top[-arg_count - 1] = value;
+            return call_native_methods(value,arg_count);
+        }
+    } else if(IS_INSTANCE(receiver)){
+        ObjInstance* instance = AS_INSTANCE(receiver);
+        Value value;
+        if(table_get(&instance->fields, name, &value)){
+            vm.stack_top[-arg_count - 1] = value;
+            return call_value(value,arg_count);
+        }
+            return invoke_from_class(instance->klass, name, arg_count);
+    } else{
+        runtime_error("Only instances and lists have methods.");
         return false;
     }
-    ObjInstance* instance = AS_INSTANCE(receiver);
-    Value value;
-    if(table_get(&instance->fields, name, & value)){
-        vm.stack_top[-arg_count - 1] = value;
-        return call_value(value,arg_count);
-    }
-    return invoke_from_class(instance->klass, name, arg_count);
 }
 static bool bind_method(ObjClass* klass, ObjString* name){
     Value method;
@@ -326,17 +320,29 @@ static InterpretResult run(){
           (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
 
   #define READ_STRING() AS_STRING(READ_CONST())
-  #define BINARY_OP(val_type, op)\
+  #define BINARY_OP(val_type, op,type)\
           do {\
             if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))){\
               runtime_error("Operands must be numbers.");\
               return INTERPRET_RUNTIME_ERROR;\
             }\
             \
-            double b = AS_NUMBER(pop());\
-            double a = AS_NUMBER(pop());\
+            type b = AS_NUMBER(pop());\
+            type a = AS_NUMBER(pop());\
             push(val_type(a op b)); \
-          } while(false)
+          } while(false);       \
+
+#define BITWISE_OP(val_type, op) \
+    do{                          \
+         if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))){\
+              runtime_error("Operands must be numbers.");\
+              return INTERPRET_RUNTIME_ERROR;\
+         }                       \
+                                 \
+           int b = AS_NUMBER(pop());               \
+           int a = AS_NUMBER(pop());              \
+           push(val_type(a op b));\
+    }while(false);
 
   for(;;){
     #ifdef DEBUG_TRACE_EXECUTION
@@ -443,14 +449,24 @@ static InterpretResult run(){
           break;
       }
 
+
+      case OP_GET_SUPER:{
+          ObjString* name = READ_STRING();
+          ObjClass* superclass = AS_CLASS(pop());
+          if(!bind_method(superclass, name)){
+              return INTERPRET_RUNTIME_ERROR;
+          }
+          break;
+      }
+
       case OP_EQUAL: {
         Value b = pop();
         Value a = pop();
         push(BOOL_VAL(vals_equal(a,b)));
         break;
       }
-      case OP_GREATER: BINARY_OP(BOOL_VAL, >); break;
-      case OP_LESS: BINARY_OP(BOOL_VAL, <); break;
+      case OP_GREATER: BINARY_OP(BOOL_VAL, >,double); break;
+      case OP_LESS: BINARY_OP(BOOL_VAL, <, double); break;
       case OP_ADD:{
         if(IS_STRING(peek(0)) && IS_STRING(peek(1))){
           concatenate();
@@ -465,17 +481,37 @@ static InterpretResult run(){
         break;
       }
       case OP_SUB:{
-        BINARY_OP(NUMBER_VAL, -);
+        BINARY_OP(NUMBER_VAL, -,double);
         break;
       }
       case OP_MUL:{
-        BINARY_OP(NUMBER_VAL, *);
+        BINARY_OP(NUMBER_VAL, *, double);
         break;
       }
       case OP_DIV:{
-        BINARY_OP(NUMBER_VAL, /);
+        BINARY_OP(NUMBER_VAL, /, double);
         break;
       }
+      case OP_BITWISE_AND:{
+          BINARY_OP(NUMBER_VAL, &, int);
+          break;
+      }
+        case OP_BITWISE_OR:{
+            BINARY_OP(NUMBER_VAL, |, int);
+            break;
+        }
+        case OP_BITWISE_XOR:{
+            BINARY_OP(NUMBER_VAL, ^, int);
+            break;
+        }
+        case OP_LEFT_SHIFT:{
+            BINARY_OP(NUMBER_VAL, <<, int);
+            break;
+        }
+        case OP_RIGHT_SHIFT:{
+            BINARY_OP(NUMBER_VAL, >>,int);
+            break;
+        }
       case OP_NOT:
         push(BOOL_VAL(is_falsey(pop())));
         break;
@@ -522,6 +558,93 @@ static InterpretResult run(){
             frame = &vm.frames[vm.frameCount - 1];
             break;
         }
+        case OP_BUILD_LIST:{
+            ObjList* list = newList();
+            uint8_t item_count = READ_BYTE();
+
+            //add items to list
+            push(OBJ_VAL(list));//for gc
+            for (int i = item_count; i > 0; i--) {
+                append_to_list(list, peek(i));
+            }
+            pop();
+
+            //pop items from stack
+            while (item_count-- > 0){
+                pop();
+            }
+            push(OBJ_VAL(list));
+            break;
+        }
+        case OP_WIDE:{
+            vm.next_op_wide = 2;
+            break;
+        }
+        case OP_INDEX_SUBSCR:{
+            Value index = peek(0);
+            Value list = peek(1);
+
+            Value result;
+            if(!IS_LIST(list)){
+                runtime_error("Invalid type to index into.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjList* list_ = AS_LIST(list);
+            if(!IS_NUMBER(index)){
+                runtime_error("List index is not a number.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            int index_ = AS_NUMBER(index);
+            if(!is_valid_list_index(list_,index_)){
+                runtime_error("List index out of range.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            result = index_from_list(list_, AS_NUMBER(index));
+            pop();
+            pop();
+            push(result);
+            break;
+        }
+
+        case OP_STORE_SUBSCR:{
+            Value item = peek(0);
+            Value index = peek(1);
+            Value list = peek(2);
+
+            if (!IS_LIST(list)){
+                runtime_error("Cannot store value in a non-list.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjList* list_ = AS_LIST(list);
+            if (!IS_NUMBER(index)){
+                runtime_error("List index is not a number.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            int index_ = AS_NUMBER(index);
+
+            if (!is_valid_list_index(list_, index_)){
+                runtime_error("Invalid list index.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            store_to_list(list_,index_, item);
+            pop();
+            pop();
+            pop();
+             push(item);
+//            push(NIL_VAL);
+            break;
+        }
+        case OP_SUPER_INVOKE:{
+            ObjString* method = READ_STRING();
+            int arg_count = READ_BYTE();
+            ObjClass* superclass = AS_CLASS(pop());
+            if(!invoke_from_class(superclass,method, arg_count)) {
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            frame = &vm.frames[vm.frameCount-1];
+            break;
+        }
+
 
         case OP_CLOSURE:{
             ObjFunction* function = AS_FUNCTION(READ_CONST());
@@ -559,9 +682,27 @@ static InterpretResult run(){
           push(OBJ_VAL(newClass(READ_STRING())));
           break;
 
+
+        case OP_INHERIT:{
+            Value superclass = peek(1);
+            if(!IS_CLASS(superclass)){
+                runtime_error("Superclass must be a class.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjClass* subclass = AS_CLASS(peek(0));
+            table_add_all(&AS_CLASS(superclass)->methods,&subclass->methods);
+            pop();//subclass
+            break;
+        }
         case OP_METHOD:
             define_method(READ_STRING());
             break;
+    }
+    if(vm.next_op_wide == 1){
+        runtime_error("OP_WIDE used on an invalid opcode.");
+        return INTERPRET_RUNTIME_ERROR;
+    } else if(vm.next_op_wide == 2){
+        vm.next_op_wide--;
     }
   }
   #undef READ_BYTE
@@ -569,6 +710,7 @@ static InterpretResult run(){
   #undef READ_CONST
   #undef READ_STRING
   #undef BINARY_OP
+  #undef BITWISE_OP
 }
 
 InterpretResult interpret(const char* source){

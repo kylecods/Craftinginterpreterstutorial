@@ -8,7 +8,8 @@
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
-#define IS_BOUND_METHOD is_obj_type(value, OBJ_BOUND_METHOD)
+#define IS_LIST(value)  is_obj_type(value,OBJ_LIST)
+#define IS_BOUND_METHOD(value) is_obj_type(value, OBJ_BOUND_METHOD)
 #define IS_CLASS(value) is_obj_type(value,OBJ_CLASS)
 #define IS_CLOSURE(value)  is_obj_type(value, OBJ_CLOSURE)
 #define IS_FUNCTION(value) is_obj_type(value, OBJ_FUNTION)
@@ -17,6 +18,7 @@
 #define IS_STRING(value) is_obj_type(value, OBJ_STRING)
 
 
+#define AS_LIST(value)  ((ObjList*)AS_OBJ(value))
 #define AS_BOUND_METHOD(value) ((ObjBoundMethod*)AS_OBJ(value))
 #define AS_CLASS(value)  ((ObjClass*)AS_OBJ(value))
 #define AS_CLOSURE(value) ((ObjClosure*)AS_OBJ(value))
@@ -30,6 +32,7 @@
 #define AS_CSTRING(value) (((ObjString*)AS_OBJ(value))->chars)
 
 typedef enum {
+    OBJ_LIST,
     OBJ_BOUND_METHOD,
     OBJ_CLASS,
     OBJ_CLOSURE,
@@ -47,6 +50,10 @@ struct sObj{
   struct sObj* next;
 };
 
+typedef struct {
+    Obj obj;
+    ValueArray values;
+}ObjList;
 typedef struct{
     Obj obj;
     int arity; //number of parameters the function expects
@@ -101,7 +108,7 @@ typedef struct{
     ObjClosure* method;
 }ObjBoundMethod;
 
-
+ObjList* newList();
 ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method);
 ObjClass* newClass(ObjString* name);
 ObjClosure* newClosure(ObjFunction* function);
@@ -112,6 +119,7 @@ ObjString* take_string(char* chars, int length);
 ObjString* copy_string(const char* chars, int length);
 ObjUpvalue* newUpvalue(Value* slot);
 void print_object(Value value);
+
 
 static inline bool is_obj_type(Value value, ObjType type){
   return IS_OBJ(value) && AS_OBJ(value)->type == type;

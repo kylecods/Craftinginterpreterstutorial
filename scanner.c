@@ -201,6 +201,7 @@ Token string(){
 }
 
 //tokenizer
+//TODO: add '&', '^', '|' and possibly bit shifting
 Token scan_token(){
   skip_whitespace();
   scanner.start = scanner.current;
@@ -216,6 +217,8 @@ Token scan_token(){
     case ')': return make_token(TOKEN_RIGHT_PAREN);
     case '{': return make_token(TOKEN_LEFT_BRACE);
     case '}': return make_token(TOKEN_RIGHT_BRACE);
+    case '[': return make_token(TOKEN_LEFT_BRACKET);
+    case ']': return make_token(TOKEN_RIGHT_BRACKET);
     case ';': return make_token(TOKEN_SEMICOLON);
     case ',': return make_token(TOKEN_COMMA);
     case '.': return make_token(TOKEN_DOT);
@@ -223,10 +226,30 @@ Token scan_token(){
     case '+': return make_token(TOKEN_PLUS);
     case '/': return make_token(TOKEN_SLASH);
     case '*': return make_token(TOKEN_STAR);
+    case '|': return make_token(TOKEN_PIPE);
+    case '^': return make_token(TOKEN_CARET);
+    case '&': return make_token(TOKEN_AMPERSAND);
     case '!': return make_token(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
     case '=': return make_token(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
-    case '<': return make_token(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
-    case '>': return make_token(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+    case '<': {
+        if (match('=')) {
+            return make_token(TOKEN_LESS_EQUAL);
+        } else if (match('<')) {
+            return make_token(TOKEN_LEFT_SHIFT);
+        } else {
+            return make_token(TOKEN_LESS);
+        }
+    }
+    case '>': {
+        if (match('=')) {
+            return make_token(TOKEN_GREATER_EQUAL);
+        } else if (match('>')) {
+            return make_token(TOKEN_RIGHT_SHIFT);
+        } else {
+            return make_token(TOKEN_GREATER);
+        }
+        //return make_token(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+    }
     case '"': return string();
   }
 
