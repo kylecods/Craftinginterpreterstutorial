@@ -1,10 +1,11 @@
-#ifndef croto_object_h
-#define croto_object_h
+#ifndef file_object_h
+#define file_object_h
 
 #include "common.h"
 #include "value.h"
 #include "chunk.h"
 #include "table.h"
+#include "include/roto.h"
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
@@ -62,7 +63,7 @@ typedef struct{
     ObjString* name;
 } ObjFunction;
 
-typedef Value (*NativeFn)(int arg_count, Value* args);
+typedef Value (*NativeFn)(RotoVM* vm,int arg_count, Value* args);
 
 typedef struct{
     Obj obj;
@@ -108,16 +109,16 @@ typedef struct{
     ObjClosure* method;
 }ObjBoundMethod;
 
-ObjList* newList();
-ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method);
-ObjClass* newClass(ObjString* name);
-ObjClosure* newClosure(ObjFunction* function);
-ObjFunction* newFunction();
-ObjInstance* newInstance(ObjClass* klass);
-ObjNative* newNative(NativeFn function);
-ObjString* take_string(char* chars, int length);
-ObjString* copy_string(const char* chars, int length);
-ObjUpvalue* newUpvalue(Value* slot);
+ObjList* newList(RotoVM* vm);
+ObjBoundMethod* newBoundMethod(RotoVM* vm,Value receiver, ObjClosure* method);
+ObjClass* newClass(RotoVM* vm,ObjString* name);
+ObjClosure* newClosure(RotoVM* vm,ObjFunction* function);
+ObjFunction* newFunction(RotoVM* vm);
+ObjInstance* newInstance(RotoVM* vm,ObjClass* klass);
+ObjNative* newNative(RotoVM* vm,NativeFn function);
+ObjString* take_string(RotoVM* vm,char* chars, int length);
+ObjString* copy_string(RotoVM* vm,const char* chars, int length);
+ObjUpvalue* newUpvalue(RotoVM* vm,Value* slot);
 void print_object(Value value);
 
 

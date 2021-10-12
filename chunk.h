@@ -1,5 +1,5 @@
-#ifndef croto_chunk_h
-#define croto_chunk_h
+#ifndef file_chunk_h
+#define file_chunk_h
 
 #include "common.h"
 #include "value.h"
@@ -61,8 +61,8 @@ typedef struct{
 }Chunk;
 
 void init_chunk(Chunk *chunk);
-void free_chunk(Chunk *chunk);
-void write_chunk(Chunk *chunk, uint8_t byte, int line);
+void free_chunk(RotoVM* vm,Chunk *chunk);
+void write_chunk(RotoVM* vm,Chunk *chunk, uint8_t byte, int line);
 
-int add_constant(Chunk *chunk, Value value);
+int add_constant(RotoVM* vm,Chunk *chunk, Value value);
 #endif

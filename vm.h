@@ -1,10 +1,11 @@
-#ifndef croto_vm_h
-#define croto_vm_h
+#ifndef file_vm_h
+#define file_vm_h
 
 #include "chunk.h"
 #include "table.h"
 #include "value.h"
 #include "object.h"
+#include "include/roto.h"
 
 
 #define FRAMES_MAX 64
@@ -17,7 +18,7 @@ typedef struct{
     Value* slots;//points to VMs value stack at the first slot the function can use
 } CallFrame;
 
-typedef struct{
+ struct _rotoVM{
   CallFrame frames[FRAMES_MAX];
   int frameCount;//height of the callframe stack
   Value stack[STACK_MAX];//stack
@@ -36,28 +37,16 @@ typedef struct{
   int gray_count;
   int gray_capacity;
   Obj** gray_stack;
-}VM;
+};
 
-typedef enum{
-  INTERPRET_OK,
-  INTERPRET_COMPILE_ERROR,
-  INTERPRET_RUNTIME_ERROR
-}InterpretResult;
-
-extern VM vm;
+void push(RotoVM* vm, Value value);
+Value pop(RotoVM* vm);
 
 
-void init_vm();
-void free_vm();
-void push(Value value);
-Value pop();
-InterpretResult interpret(const char* source);
-
-
-void append_to_list(ObjList* list, Value value);
+void append_to_list(RotoVM* vm,ObjList* list, Value value);
 bool is_valid_list_index(ObjList* list, int index);
 void delete_from_list(ObjList* list, int index);
-void runtime_error(const char *format, ...);
+void runtime_error(RotoVM* vm,const char *format, ...);
 
 
 

@@ -12,18 +12,18 @@ void init_val_array(ValueArray *arr) {
   arr->count = 0;
 }
 //possibly also use stretchy buffers? but noteworthy to understand this
-void write_val_array(ValueArray *arr, Value value){
+void write_val_array(RotoVM* vm,ValueArray *arr, Value value){
   if(arr->capacity < arr->count + 1){
     int old_cap = arr->capacity;
     arr->capacity = GROW_CAPACITY(old_cap);
-    arr->values = GROW_ARRAY(arr->values, Value, old_cap, arr->capacity);
+    arr->values = GROW_ARRAY(vm,arr->values, Value, old_cap, arr->capacity);
   }
   arr->values[arr->count] = value;
   arr->count++;
 }
 
-void free_val_array(ValueArray *arr){
-  FREE_ARRAY(Value,arr->values,arr->capacity);
+void free_val_array(RotoVM* vm,ValueArray *arr){
+  FREE_ARRAY(vm,Value,arr->values,arr->capacity);
   init_val_array(arr);
 }
 

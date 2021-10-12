@@ -67,7 +67,7 @@ typedef enum{
 
 } Precedence;
 
-typedef void (*ParseFn)(bool can_assign);
+typedef void (*ParseFn)(RotoVM* vm, bool can_assign);
 
 typedef struct{
   ParseFn prefix;
@@ -168,47 +168,47 @@ static bool match(TokenType type){
   advance();
   return true;
 }
-static void emit_byte(uint8_t byte) {
+static void emit_byte(RotoVM* vm, uint8_t byte) {
   /* code */
-  write_chunk(current_chunk(), byte, parser.previous.line);
+  write_chunk(vm,current_chunk(), byte, parser.previous.line);
 }
-static void emit_bytes(uint8_t byte1, uint8_t byte2) {
-  emit_byte(byte1);
-  emit_byte(byte2);
+static void emit_bytes(RotoVM* vm,uint8_t byte1, uint8_t byte2) {
+  emit_byte(vm,byte1);
+  emit_byte(vm,byte2);
 }
-static void emit_loop(int loop_start){
-  emit_byte(OP_LOOP);
+static void emit_loop(RotoVM* vm,int loop_start){
+  emit_byte(vm,OP_LOOP);
 
   int offset = current_chunk()->count - loop_start + 2;
   if(offset > UINT16_MAX) error("Loop body too large.");
 
-  emit_byte((offset >> 8) & 0xff);
-  emit_byte(offset & 0xff);
+  emit_byte(vm,(offset >> 8) & 0xff);
+  emit_byte(vm,offset & 0xff);
 }
-static int emit_jmp(uint8_t instruction){
-  emit_byte(instruction);
-  emit_byte(0xff);
-  emit_byte(0xff);
+static int emit_jmp(RotoVM* vm,uint8_t instruction){
+  emit_byte(vm,instruction);
+  emit_byte(vm,0xff);
+  emit_byte(vm,0xff);
   return current_chunk()->count - 2;
 }
-static void emit_return() {
+static void emit_return(RotoVM* vm) {
     if(current->type == TYPE_INITIALIZER){
-        emit_bytes(OP_GET_LOCAL, 0);
+        emit_bytes(vm,OP_GET_LOCAL, 0);
     } else {
-        emit_byte(OP_NIL);
+        emit_byte(vm,OP_NIL);
     }
-    emit_byte(OP_RETURN);
+    emit_byte(vm,OP_RETURN);
 }
-static uint8_t make_constant(Value value){
-  int constant = add_constant(current_chunk(), value);
+static uint8_t make_constant(RotoVM* vm,Value value){
+  int constant = add_constant(vm,current_chunk(), value);
   if(constant > UINT8_MAX){
     error("Too many constants in one chunk");
     return 0;
   }
   return (uint8_t)constant;
 }
-static void emit_constant(Value value) {
-  emit_bytes(OP_CONSTANT, make_constant(value));
+static void emit_constant(RotoVM* vm,Value value) {
+  emit_bytes(vm,OP_CONSTANT, make_constant(vm,value));
 }
 
 static void patch_jmp(int offset){
@@ -222,18 +222,18 @@ static void patch_jmp(int offset){
   current_chunk()->code[offset + 1] = jump & 0xff;
 }
 
-static void init_compiler(Compiler* compiler,FunctionType type){
+static void init_compiler(RotoVM* vm,Compiler* compiler,FunctionType type){
     compiler->enclosing = current;
     compiler->function = NULL;
     compiler->type = type;
     compiler->local_count = 0;
     compiler->scope_depth = 0;
-    compiler->function = newFunction();
+    compiler->function = newFunction(vm);
 
     current = compiler;
 
     if (type != TYPE_SCRIPT){
-        current->function->name = copy_string(parser.previous.start, parser.previous.length);
+        current->function->name = copy_string(vm,parser.previous.start, parser.previous.length);
     }
 
     Local* local = &current->locals[current->local_count++];
@@ -250,8 +250,8 @@ static void init_compiler(Compiler* compiler,FunctionType type){
 }
 
 
-static ObjFunction* end_compiler() {
-    emit_return();
+static ObjFunction* end_compiler(RotoVM* vm) {
+    emit_return(vm);
     ObjFunction* function = current->function;
 #ifndef DEBUG_PRINT_CODE
     if(!parser.hadError){
@@ -268,43 +268,43 @@ static void begin_scope(){
   current->scope_depth++;
 }
 
-static void end_scope(){
+static void end_scope(RotoVM* vm){
     current->scope_depth--;
   while (current->local_count > 0 && current->locals[current->local_count - 1].depth >
           current->scope_depth) {
       if (current->locals[current->local_count - 1].is_captured) {
-            emit_byte(OP_CLOSE_UPVALUE);
+            emit_byte(vm,OP_CLOSE_UPVALUE);
       }else{
-          emit_byte(OP_POP);//optimization use a pop instr with an operand to pop many at once
+          emit_byte(vm,OP_POP);//optimization use a pop instr with an operand to pop many at once
       }
     current->local_count--;
   }
 }
 
 //foward declaration // many like this is not good. bruh dont do this in own..
-static void expression();
-static void statement();
-static void declaration();
-static void and_(bool can_assign);
+static void expression(RotoVM* vm);
+static void statement(RotoVM* vm);
+static void declaration(RotoVM* vm);
+static void and_(RotoVM* vm,bool can_assign);
 static ParseRule* get_rule(TokenType type);
-static void parse_precedence(Precedence precedence);
-static uint8_t parse_variable(const char* error_msg);
-static void define_variable(uint8_t global);
-static void var_decl();
+static void parse_precedence(RotoVM* vm,Precedence precedence);
+static uint8_t parse_variable(RotoVM* vm, const char* error_msg);
+static void define_variable(RotoVM* vm,uint8_t global);
+static void var_decl(RotoVM* vm);
 static void mark_initialized();
-static void fun_declaration();
-static uint8_t argument_list();
+static void fun_declaration(RotoVM* vm);
+static uint8_t argument_list(RotoVM* vm);
 static int resolve_local(Compiler* compiler, Token* name);
 static int resolve_upvalue(Compiler* compiler, Token* name);
-static void named_variable(Token name, bool can_assign);
-static void call(bool can_assign);
-static uint8_t identifier_constant(Token* name);
+static void named_variable(RotoVM* vm,Token name, bool can_assign);
+static void call(RotoVM* vm,bool can_assign);
+static uint8_t identifier_constant(RotoVM* vm,Token* name);
 static void decl_variable();
-static void variable(bool can_assign);
+static void variable(RotoVM* vm,bool can_assign);
 static bool identifiers_equal(Token* a, Token* b);
 static void add_local(Token name);
 static Token synthetic_token(const char* text);
-static void class_declaration();
+static void class_declaration(RotoVM* vm);
 
 
 
@@ -312,20 +312,20 @@ static void class_declaration();
 
 
 
-static void expression(){
-  parse_precedence(PREC_ASSIGNMENT);
+static void expression(RotoVM* vm){
+  parse_precedence(vm,PREC_ASSIGNMENT);
 }
 
-static void block(){
+static void block(RotoVM* vm){
   while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
-    declaration();
+    declaration(vm);
   }
 
   consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
-static void function(FunctionType type){
+static void function(RotoVM* vm,FunctionType type){
     Compiler compiler;
-    init_compiler(&compiler, type);
+    init_compiler(vm,&compiler, type);
     begin_scope();
 
     //compile the parameter list
@@ -337,44 +337,44 @@ static void function(FunctionType type){
                 error_at_current("Can't have more than 255 parameters.");
             }
             //parsing
-            uint8_t paramConstant = parse_variable("Expect parameter name");
-            define_variable(paramConstant);
+            uint8_t paramConstant = parse_variable(vm,"Expect parameter name");
+            define_variable(vm,paramConstant);
         } while (match(TOKEN_COMMA));
     }
     consume(TOKEN_RIGHT_PAREN,"Expect ')' after parameters.");
 
     //The body
     consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
-    block();
+    block(vm);
 
     //Create the function object.
-    ObjFunction* function = end_compiler();
-    emit_bytes(OP_CLOSURE,make_constant(OBJ_VAL(function)));
+    ObjFunction* function = end_compiler(vm);
+    emit_bytes(vm,OP_CLOSURE,make_constant(vm,OBJ_VAL(function)));
 
         for (int i = 0; i < function->upvalue_count; ++i) {
-            emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
-            emit_byte(compiler.upvalues[i].index);
+            emit_byte(vm,compiler.upvalues[i].is_local ? 1 : 0);
+            emit_byte(vm,compiler.upvalues[i].index);
         }
 
 }
-static void method(){
+static void method(RotoVM* vm){
     consume(TOKEN_IDENTIFIER, "Expect method name.");
-    uint8_t constant = identifier_constant(&parser.previous);
+    uint8_t constant = identifier_constant(vm, &parser.previous);
     FunctionType type = TYPE_METHOD;
     if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0){
         type = TYPE_INITIALIZER;
     }
-    function(type);
-    emit_bytes(OP_METHOD, constant);
+    function(vm,type);
+    emit_bytes(vm,OP_METHOD, constant);
 }
-static void class_declaration(){
+static void class_declaration(RotoVM* vm){
     consume(TOKEN_IDENTIFIER,"Expected class name.");
     Token class_name = parser.previous;
-    uint8_t name_constant = identifier_constant(&parser.previous);
+    uint8_t name_constant = identifier_constant(vm,&parser.previous);
     decl_variable();
 
-    emit_bytes(OP_CLASS, name_constant);
-    define_variable(name_constant);
+    emit_bytes(vm,OP_CLASS, name_constant);
+    define_variable(vm,name_constant);
 
     ClassCompiler classCompiler;
     classCompiler.name = parser.previous;
@@ -384,59 +384,59 @@ static void class_declaration(){
 
     if(match(TOKEN_LESS)){
         consume(TOKEN_IDENTIFIER,"Expect superclass name.");
-        variable(false);
+        variable(vm,false);
         if(identifiers_equal(&class_name, &parser.previous)){
             error("A class can't inherit from itself.");
         }
         begin_scope();
         add_local(synthetic_token("super"));
-        define_variable(0);
-        named_variable(class_name,false);
-        emit_byte(OP_INHERIT);
+        define_variable(vm,0);
+        named_variable(vm,class_name,false);
+        emit_byte(vm,OP_INHERIT);
         classCompiler.has_super_class = true;
     }
 
-    named_variable(class_name, false);
+    named_variable(vm,class_name, false);
     consume(TOKEN_LEFT_BRACE, "Expect '{' before the class body.");
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)){
-        method();
+        method(vm);
     }
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after the class body.");
-    emit_byte(OP_POP);
+    emit_byte(vm,OP_POP);
 
     if (classCompiler.has_super_class){
-        end_scope();
+        end_scope(vm);
     }
     current_class = current_class->enclosing;
 }
-static void fun_declaration(){
-    uint8_t global = parse_variable("Expect function name.");
+static void fun_declaration(RotoVM* vm){
+    uint8_t global = parse_variable(vm,"Expect function name.");
     mark_initialized();
-    function(TYPE_FUNCTION);
-    define_variable(global);
+    function(vm,TYPE_FUNCTION);
+    define_variable(vm,global);
 }
-static void var_decl() {
-  uint8_t global = parse_variable("Expected variable name.");
+static void var_decl(RotoVM* vm) {
+  uint8_t global = parse_variable(vm,"Expected variable name.");
 
   if(match(TOKEN_EQUAL)){
-    expression();
+    expression(vm);
   }
   else{
-    emit_byte(OP_NIL);
+    emit_byte(vm,OP_NIL);
   }
   consume(TOKEN_SEMICOLON, "Expected ';' after variable declaration.");
 
-  define_variable(global);
+  define_variable(vm,global);
 }
 
-void expr_stmt() {
-  expression();
+void expr_stmt(RotoVM* vm) {
+  expression(vm);
   consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
-  emit_byte(OP_POP);
+  emit_byte(vm,OP_POP);
 
 }
 
-static void for_stmt() {
+static void for_stmt(RotoVM* vm) {
 
   //declaration part: var i = 0;
   begin_scope();
@@ -444,9 +444,9 @@ static void for_stmt() {
   if (match(TOKEN_SEMICOLON)) {
     //no initializer
   }else if(match(TOKEN_VAR)){
-    var_decl();
+    var_decl(vm);
   }else{
-    expr_stmt();
+    expr_stmt(vm);
   }
 
   int loop_start = current_chunk()->count;
@@ -454,39 +454,39 @@ static void for_stmt() {
   //conditional part: eg. i < 3; ....
   int exit_jmp = -1;
   if(!match(TOKEN_SEMICOLON)){
-    expression();
+    expression(vm);
     consume(TOKEN_SEMICOLON, "Expected ';' after loop condition.");
 
     //jump out of the loop if the condition is false
-    exit_jmp = emit_jmp(OP_JUMP_IF_FALSE);
-    emit_byte(OP_POP); //condition
+    exit_jmp = emit_jmp(vm,OP_JUMP_IF_FALSE);
+    emit_byte(vm,OP_POP); //condition
   }
 
   //increment part: i++;
   if(!match(TOKEN_RIGHT_PAREN)){
-    int body_jump = emit_jmp(OP_JUMP);
+    int body_jump = emit_jmp(vm,OP_JUMP);
 
     int increment_start = current_chunk()->count;
-    expression();
-    emit_byte(OP_POP);
+    expression(vm);
+    emit_byte(vm,OP_POP);
     consume(TOKEN_RIGHT_PAREN, "Expected ')' after for clauses");
 
-    emit_loop(loop_start);
+    emit_loop(vm,loop_start);
     loop_start = increment_start;
     patch_jmp(body_jump);
 
   }
 
-  statement();
+  statement(vm);
 
-  emit_loop(loop_start);
+  emit_loop(vm,loop_start);
 
   if(exit_jmp != -1){
     patch_jmp(exit_jmp);
-    emit_byte(OP_POP);
+    emit_byte(vm,OP_POP);
   }
 
-  end_scope();
+  end_scope(vm);
 }
 /*
 if_stmt := '(' expr; ')' '{' statement; '}' else '{' statement '}'
@@ -501,19 +501,19 @@ if_stmt := '(' expr; ')' '{' statement; '}' else '{' statement '}'
 
 */
 
-static void if_stmt(){
+static void if_stmt(RotoVM* vm){
     consume(TOKEN_LEFT_PAREN, "Expected '(' after 'if'.");
-    expression();
+    expression(vm);
     consume(TOKEN_RIGHT_PAREN,"Expected ')' after condition.");
 
-    int then_jmp = emit_jmp(OP_JUMP_IF_FALSE);
-    emit_byte(OP_POP);
-    statement();
-    int else_jmp = emit_jmp(OP_JUMP);
+    int then_jmp = emit_jmp(vm,OP_JUMP_IF_FALSE);
+    emit_byte(vm,OP_POP);
+    statement(vm);
+    int else_jmp = emit_jmp(vm,OP_JUMP);
     patch_jmp(then_jmp);
 
-    emit_byte(OP_POP);
-    if(match(TOKEN_ELSE)) statement();
+    emit_byte(vm,OP_POP);
+    if(match(TOKEN_ELSE)) statement(vm);
     patch_jmp(else_jmp);
 }
 //static void print_statement() {
@@ -522,38 +522,38 @@ static void if_stmt(){
 //  emit_byte(OP_PRINT);
 //}
 
-static void return_stmt(){
+static void return_stmt(RotoVM* vm){
     if (current->type == TYPE_SCRIPT){
         error("Can't return from top-level code.");
     }
     if(match(TOKEN_SEMICOLON)){
-        emit_return();
+        emit_return(vm);
     } else{
         if (current->type == TYPE_INITIALIZER){
             error("Can't return a value from an initializer.");
         }
-        expression();
+        expression(vm);
         consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
-        emit_byte(OP_RETURN);
+        emit_byte(vm,OP_RETURN);
     }
 }
 
-static void while_stmt() {
+static void while_stmt(RotoVM* vm) {
   int loop_start = current_chunk()->count;
 
   consume(TOKEN_LEFT_PAREN, "Expected '(' after 'while'.");
-  expression();
+  expression(vm);
   consume(TOKEN_RIGHT_PAREN, "Expected ')' after condition.");
 
-  int exit_jmp = emit_jmp(OP_JUMP_IF_FALSE);
+  int exit_jmp = emit_jmp(vm,OP_JUMP_IF_FALSE);
 
-  emit_byte(OP_POP);
-  statement();
+  emit_byte(vm,OP_POP);
+  statement(vm);
 
-  emit_loop(loop_start);
+  emit_loop(vm,loop_start);
 
   patch_jmp(exit_jmp);
-  emit_byte(OP_POP);
+  emit_byte(vm,OP_POP);
 }
 static void synchronize() {
   parser.panicMode = false;
@@ -574,15 +574,15 @@ static void synchronize() {
     advance();
   }
 }
-static void declaration() {
+static void declaration(RotoVM* vm) {
     if(match(TOKEN_CLASS)){
-        class_declaration();
+        class_declaration(vm);
     }else if(match(TOKEN_FUN)){
-        fun_declaration();
+        fun_declaration(vm);
     }else if(match(TOKEN_VAR)){
-      var_decl();
+      var_decl(vm);
   }else{
-    statement();
+    statement(vm);
   }
   if(parser.panicMode) synchronize();
 }
@@ -595,64 +595,64 @@ static void declaration() {
 //             |while_stmt
 //             |block
 
-static void statement() {
+static void statement(RotoVM* vm) {
     if(match(TOKEN_FOR)){
-         for_stmt();
+         for_stmt(vm);
   }else if(match(TOKEN_IF)){
-    if_stmt();
+    if_stmt(vm);
   }else if(match(TOKEN_RETURN)){
-      return_stmt();
+      return_stmt(vm);
   }else if(match(TOKEN_WHILE)){
-    while_stmt();
+    while_stmt(vm);
   }else if(match(TOKEN_LEFT_BRACE)){
     begin_scope();
-    block();
-    end_scope();
+    block(vm);
+    end_scope(vm);
   }else{
-    expr_stmt();
+    expr_stmt(vm);
   }
 }
-static void grouping(bool can_assign){
-  expression();
+static void grouping(RotoVM* vm,bool can_assign){
+  expression(vm);
   consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 }
 
 
-static void binary(bool can_assign) {
+static void binary(RotoVM* vm,bool can_assign) {
   //remember the token
   TokenType operator_type = parser.previous.type;
 
   //compile the right operand
   ParseRule* rule = get_rule(operator_type);
-  parse_precedence((Precedence)(rule->precedence + 1));
+  parse_precedence(vm,(Precedence)(rule->precedence + 1));
 
   //emit the operator instruction
   switch (operator_type) {
-    case TOKEN_BANG_EQUAL: emit_bytes(OP_EQUAL,OP_NOT); break;
-    case TOKEN_EQUAL_EQUAL: emit_byte(OP_EQUAL); break;
-    case TOKEN_GREATER: emit_byte(OP_GREATER); break;
-    case TOKEN_GREATER_EQUAL: emit_bytes(OP_LESS, OP_NOT); break;
-    case TOKEN_LESS: emit_byte(OP_LESS); break;
-    case TOKEN_LESS_EQUAL: emit_bytes(OP_GREATER, OP_NOT); break;
-    case TOKEN_PIPE: emit_byte(OP_BITWISE_OR); break;
-    case TOKEN_CARET: emit_byte(OP_BITWISE_XOR); break;
-      case TOKEN_AMPERSAND: emit_byte(OP_BITWISE_AND); break;
-    case TOKEN_RIGHT_SHIFT: emit_byte(OP_RIGHT_SHIFT); break;
-    case TOKEN_LEFT_SHIFT: emit_byte(OP_LEFT_SHIFT); break;
-    case TOKEN_PLUS: emit_byte(OP_ADD); break;
-    case TOKEN_MINUS: emit_byte(OP_SUB); break;
-    case TOKEN_STAR: emit_byte(OP_MUL); break;
-    case TOKEN_SLASH: emit_byte(OP_DIV); break;
+    case TOKEN_BANG_EQUAL: emit_bytes(vm,OP_EQUAL,OP_NOT); break;
+    case TOKEN_EQUAL_EQUAL: emit_byte(vm,OP_EQUAL); break;
+    case TOKEN_GREATER: emit_byte(vm,OP_GREATER); break;
+    case TOKEN_GREATER_EQUAL: emit_bytes(vm,OP_LESS, OP_NOT); break;
+    case TOKEN_LESS: emit_byte(vm,OP_LESS); break;
+    case TOKEN_LESS_EQUAL: emit_bytes(vm,OP_GREATER, OP_NOT); break;
+    case TOKEN_PIPE: emit_byte(vm,OP_BITWISE_OR); break;
+    case TOKEN_CARET: emit_byte(vm,OP_BITWISE_XOR); break;
+      case TOKEN_AMPERSAND: emit_byte(vm,OP_BITWISE_AND); break;
+    case TOKEN_RIGHT_SHIFT: emit_byte(vm,OP_RIGHT_SHIFT); break;
+    case TOKEN_LEFT_SHIFT: emit_byte(vm,OP_LEFT_SHIFT); break;
+    case TOKEN_PLUS: emit_byte(vm,OP_ADD); break;
+    case TOKEN_MINUS: emit_byte(vm,OP_SUB); break;
+    case TOKEN_STAR: emit_byte(vm,OP_MUL); break;
+    case TOKEN_SLASH: emit_byte(vm,OP_DIV); break;
 
   }
 }
 
-static void call(bool can_assign){
-    uint8_t arg_count = argument_list();
-    emit_bytes(OP_CALL, arg_count);
+static void call(RotoVM* vm,bool can_assign){
+    uint8_t arg_count = argument_list(vm);
+    emit_bytes(vm,OP_CALL, arg_count);
 }
 
-static void list(bool can_assign){
+static void list(RotoVM* vm,bool can_assign){
     int item_count = 0;
 //    if(!check(TOKEN_RIGHT_BRACKET)){
         do {
@@ -663,11 +663,11 @@ static void list(bool can_assign){
 //            if (item_count == UINT8_COUNT){
 //                error("Cannot have more than 256 items in a list literal.");
 //            }
-            expression();
+            expression(vm);
             item_count++;
         } while (match(TOKEN_COMMA));
 //    }
-    emit_bytes(OP_BUILD_LIST,item_count);
+    emit_bytes(vm,OP_BUILD_LIST,item_count);
     consume(TOKEN_RIGHT_BRACKET, "Expect ']' after list literal.");
 //    if(item_count < 256){
 //        emit_bytes(OP_BUILD_LIST,item_count);
@@ -682,54 +682,54 @@ static void list(bool can_assign){
 
 }
 
-static void subscript(bool can_assign){
-    parse_precedence(PREC_OR);
+static void subscript(RotoVM* vm,bool can_assign){
+    parse_precedence(vm,PREC_OR);
     consume(TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
 
     if(can_assign && match(TOKEN_EQUAL)){
-        expression();
-        emit_byte(OP_STORE_SUBSCR);
+        expression(vm);
+        emit_byte(vm,OP_STORE_SUBSCR);
     } else{
-        emit_byte(OP_INDEX_SUBSCR);
+        emit_byte(vm,OP_INDEX_SUBSCR);
     }
 }
 
 
-static void dot(bool can_assign){
+static void dot(RotoVM* vm, bool can_assign){
     consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
-    uint8_t name = identifier_constant(&parser.previous);
+    uint8_t name = identifier_constant(vm,&parser.previous);
     if(can_assign && match(TOKEN_EQUAL)){
-        expression();
-        emit_bytes(OP_SET_PROPERTY, name);
+        expression(vm);
+        emit_bytes(vm,OP_SET_PROPERTY, name);
     } else if(match(TOKEN_LEFT_PAREN)) {
-        uint8_t arg_count = argument_list();
-        emit_bytes(OP_INVOKE, name);
-        emit_byte(arg_count);
+        uint8_t arg_count = argument_list(vm);
+        emit_bytes(vm,OP_INVOKE, name);
+        emit_byte(vm,arg_count);
     }else{
-        emit_bytes(OP_GET_PROPERTY, name);
+        emit_bytes(vm,OP_GET_PROPERTY, name);
     }
 }
 
-static void literal(bool can_assign) {
+static void literal(RotoVM* vm,bool can_assign) {
   switch (parser.previous.type) {
-    case TOKEN_FALSE: emit_byte(OP_FALSE); break;
-    case TOKEN_NIL: emit_byte(OP_NIL); break;
-    case TOKEN_TRUE: emit_byte(OP_TRUE); break;
+    case TOKEN_FALSE: emit_byte(vm,OP_FALSE); break;
+    case TOKEN_NIL: emit_byte(vm,OP_NIL); break;
+    case TOKEN_TRUE: emit_byte(vm,OP_TRUE); break;
     default:
       return;
   }
 }
-static void or_(bool can_assign) {
-  int else_jmp = emit_jmp(OP_JUMP_IF_FALSE);
-  int end_jump = emit_jmp(OP_JUMP);
+static void or_(RotoVM* vm,bool can_assign) {
+  int else_jmp = emit_jmp(vm,OP_JUMP_IF_FALSE);
+  int end_jump = emit_jmp(vm,OP_JUMP);
 
   patch_jmp(else_jmp);
-  emit_jmp(OP_POP);
+  emit_jmp(vm,OP_POP);
 
-  parse_precedence(PREC_OR);
+  parse_precedence(vm,PREC_OR);
   patch_jmp(end_jump);
 }
-static void number(bool can_assign) {
+static void number(RotoVM* vm,bool can_assign) {
 
     // credit Dictu,https://github.com/dictu-lang/Dictu/blob/9fffbef4b19d0f0a8f0c2fa4ead70631b22d5c91/src/vm/compiler.c#L821
     char* buffer  = malloc(sizeof(char)*(parser.previous.length + 1));
@@ -745,15 +745,15 @@ static void number(bool can_assign) {
     *current = '\0';
 //    double value = strtod(parser.previous.start, NULL);
     double value = strtod(buffer, NULL);
-    emit_constant(NUMBER_VAL(value));
+    emit_constant(vm,NUMBER_VAL(value));
     free(buffer);
 }
 
 
-static void string(bool can_assign){
-  emit_constant(OBJ_VAL(copy_string(parser.previous.start + 1, parser.previous.length - 2)));
+static void string(RotoVM* vm, bool can_assign){
+  emit_constant(vm,OBJ_VAL(copy_string(vm,parser.previous.start + 1, parser.previous.length - 2)));
 }
-static void named_variable(Token name, bool can_assign) {
+static void named_variable(RotoVM* vm,Token name, bool can_assign) {
     uint8_t get_op, set_op;
     int arg = resolve_local(current, &name);
 
@@ -765,20 +765,20 @@ static void named_variable(Token name, bool can_assign) {
         set_op = OP_SET_UPVALUE;
 
     }else{
-      arg = identifier_constant(&name);
+      arg = identifier_constant(vm,&name);
       get_op = OP_GET_GLOBAL;
       set_op = OP_SET_GLOBAL;
     }
 
    if(can_assign && match(TOKEN_EQUAL)){
-     expression();
-     emit_bytes(set_op,(uint8_t)arg);
+     expression(vm);
+     emit_bytes(vm,set_op,(uint8_t)arg);
    }else{
-     emit_bytes(get_op,(uint8_t)arg);
+     emit_bytes(vm,get_op,(uint8_t)arg);
    }
 }
-static void variable(bool can_assign){
-  named_variable(parser.previous, can_assign);
+static void variable(RotoVM* vm,bool can_assign){
+  named_variable(vm,parser.previous, can_assign);
 }
 static Token synthetic_token(const char* text){
     Token token;
@@ -786,7 +786,7 @@ static Token synthetic_token(const char* text){
     token.length = (int)strlen(text);
     return token;
 }
-static void super_(bool can_assign){
+static void super_(RotoVM* vm,bool can_assign){
     if(current_class == NULL){
         error("Can't use 'super' outside of a class");
     } else if(!current_class->has_super_class){
@@ -795,35 +795,35 @@ static void super_(bool can_assign){
 
     consume(TOKEN_DOT, "Expect '.' after 'super'.");
     consume(TOKEN_IDENTIFIER, "Expect superclass method name.");
-    uint8_t name = identifier_constant(&parser.previous);
-    named_variable(synthetic_token("this"), false);
+    uint8_t name = identifier_constant(vm,&parser.previous);
+    named_variable(vm,synthetic_token("this"), false);
     if(match(TOKEN_LEFT_PAREN)){
-        uint8_t arg_count = argument_list();
-        named_variable(synthetic_token("super"),false);
-        emit_bytes(OP_SUPER_INVOKE, name);
-        emit_byte(arg_count);
+        uint8_t arg_count = argument_list(vm);
+        named_variable(vm,synthetic_token("super"),false);
+        emit_bytes(vm,OP_SUPER_INVOKE, name);
+        emit_byte(vm,arg_count);
     } else{
-        named_variable(synthetic_token("super"), false);
-        emit_bytes(OP_GET_SUPER,name);
+        named_variable(vm,synthetic_token("super"), false);
+        emit_bytes(vm,OP_GET_SUPER,name);
     }
 
 }
-static void this_(bool can_assign){
+static void this_(RotoVM* vm,bool can_assign){
     if (current_class == NULL){
         error("Can't use 'this' outside of a class.");
         return;
     }
-   variable(false);
+   variable(vm,false);
 }
 
-static void unary(bool can_assign){
+static void unary(RotoVM* vm,bool can_assign){
   TokenType operator_type = parser.previous.type;
   //compile the operand ('-' expr)
-  parse_precedence(PREC_UNARY);
+  parse_precedence(vm,PREC_UNARY);
 
   switch (operator_type) {
-    case TOKEN_BANG: emit_byte(OP_NOT); break;
-    case TOKEN_MINUS: emit_byte(OP_NEGATE); break;
+    case TOKEN_BANG: emit_byte(vm,OP_NOT); break;
+    case TOKEN_MINUS: emit_byte(vm,OP_NEGATE); break;
     default:
       return;
   }
@@ -878,7 +878,7 @@ ParseRule rules[] = {
   { NULL,     NULL,    PREC_NONE },       // TOKEN_EOF
 };
 
-static void parse_precedence(Precedence precedence){
+static void parse_precedence(RotoVM* vm,Precedence precedence){
     advance();
     ParseFn prefix_rule = get_rule(parser.previous.type)->prefix;
     if(prefix_rule == NULL){
@@ -886,19 +886,19 @@ static void parse_precedence(Precedence precedence){
       return;
     }
     bool can_assign = precedence <= PREC_ASSIGNMENT;
-    prefix_rule(can_assign);
+    prefix_rule(vm,can_assign);
 
     while (precedence <= get_rule(parser.current.type)->precedence) {
       advance();
       ParseFn infix_rule = get_rule(parser.previous.type)->infix;
-      infix_rule(can_assign);
+      infix_rule(vm,can_assign);
     }
     if(can_assign && match (TOKEN_EQUAL)){
       error("Invalid assignment target.");
     }
 }
-static uint8_t identifier_constant(Token* name){
-  return make_constant(OBJ_VAL(copy_string(name->start, name->length)));
+static uint8_t identifier_constant(RotoVM* vm,Token* name){
+  return make_constant(vm,OBJ_VAL(copy_string(vm,name->start, name->length)));
 }
 static bool identifiers_equal(Token* a, Token* b){
   if(a->length != b->length) return false;
@@ -983,12 +983,12 @@ static void decl_variable(){
 
 }
 
-static uint8_t parse_variable(const char* error_msg){
+static uint8_t parse_variable(RotoVM* vm,const char* error_msg){
   consume(TOKEN_IDENTIFIER, error_msg);
 
   decl_variable();
   if(current->scope_depth > 0) return 0;
-  return identifier_constant(&parser.previous);
+  return identifier_constant(vm,&parser.previous);
 }
 
 static void mark_initialized() {
@@ -996,19 +996,19 @@ static void mark_initialized() {
   current->locals[current->local_count - 1].depth = current->scope_depth;
 }
 
-static void define_variable(uint8_t global) {
+static void define_variable(RotoVM* vm,uint8_t global) {
   if(current->scope_depth > 0){
     mark_initialized();
     return;
   }
-  emit_bytes(OP_DEFINE_GLOBAL, global);
+  emit_bytes(vm,OP_DEFINE_GLOBAL, global);
 }
 
-static uint8_t argument_list(){
+static uint8_t argument_list(RotoVM* vm){
     uint8_t arg_count = 0;
     if(!check(TOKEN_RIGHT_PAREN)){
         do {
-            expression();
+            expression(vm);
             if (arg_count == 255){
                 error("Can't have more than 255 arguments.");
             }
@@ -1027,11 +1027,11 @@ static uint8_t argument_list(){
     true: POP move to right expr
   right expr value is result of right expr
 */
-static void and_(bool can_assign) {
-   int end_jump = emit_jmp(OP_JUMP_IF_FALSE);
+static void and_(RotoVM* vm,bool can_assign) {
+   int end_jump = emit_jmp(vm,OP_JUMP_IF_FALSE);
 
-   emit_byte(OP_POP);
-   parse_precedence(PREC_AND);
+   emit_byte(vm,OP_POP);
+   parse_precedence(vm,PREC_AND);
 
    patch_jmp(end_jump);
 }
@@ -1041,27 +1041,27 @@ static ParseRule* get_rule(TokenType type){
 }
 
 
-ObjFunction* compile(const char *source){
+ObjFunction* compile(RotoVM* vm, const char *source){
   init_scanner(source);
   Compiler compiler;
-  init_compiler(&compiler,TYPE_SCRIPT);
+  init_compiler(vm,&compiler,TYPE_SCRIPT);
 
    parser.hadError = false;
    parser.panicMode = false;
    advance();
 
    while (!match(TOKEN_EOF)) {
-     declaration();
+     declaration(vm);
    }
-   ObjFunction* function = end_compiler();
+   ObjFunction* function = end_compiler(vm);
 
    return parser.hadError ? NULL: function;
 }
 
-void mark_compiler_roots(){
+void mark_compiler_roots(RotoVM* vm){
     Compiler* compiler = current;
     while (compiler != NULL){
-        mark_object((Obj*)compiler->function);
+        mark_object(vm,(Obj*)compiler->function);
         compiler = compiler->enclosing;
     }
 }

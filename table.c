@@ -14,8 +14,8 @@ void init_table(Table* table){
   table->entries = NULL;
 }
 
-void free_table(Table* table){
-  FREE_ARRAY(Entry, table->entries, table->capacity + 1);
+void free_table(RotoVM* vm,Table* table){
+  FREE_ARRAY(vm,Entry, table->entries, table->capacity + 1);
   init_table(table);
 }
 
@@ -52,8 +52,8 @@ bool table_get(Table* table, ObjString* key, Value* value){
   return true;
 }
 
-static void adjust_capacity(Table* table, int capacity) {
-  Entry* entries = ALLOCATE(Entry, capacity + 1);
+static void adjust_capacity(RotoVM* vm,Table* table, int capacity) {
+  Entry* entries = ALLOCATE(vm,Entry, capacity + 1);
   for (int i = 0; i <= capacity; i++) {
     entries[i].key = NULL;
     entries[i].value = NIL_VAL;
@@ -69,15 +69,15 @@ static void adjust_capacity(Table* table, int capacity) {
     dest->value = entry->value;
     table->count++;
   }
-  FREE_ARRAY(Entry, table->entries, table->capacity + 1);
+  FREE_ARRAY(vm,Entry, table->entries, table->capacity + 1);
   table->entries = entries;
   table->capacity = capacity;
 }
 
-bool table_set(Table* table, ObjString* key, Value value){
+bool table_set(RotoVM* vm,Table* table, ObjString* key, Value value){
   if(table->count + 1 > (table->capacity + 1) * TABLE_MAX_LOAD){
     int capacity = GROW_CAPACITY(table->capacity + 1) - 1;
-    adjust_capacity(table, capacity);
+    adjust_capacity(vm,table, capacity);
   }
   Entry* entry = find_entry(table->entries, table->capacity, key);
 
@@ -103,11 +103,11 @@ bool table_delete(Table* table, ObjString* key){
   entry->value = BOOL_VAL(true);
 }
 
-void table_add_all(Table* from, Table* to) {
+void table_add_all(RotoVM* vm,Table* from, Table* to) {
   for (int i = 0; i <= from->capacity; i++) {
     Entry* entry = &from->entries[i];
     if(entry->key != NULL){
-      table_set(to, entry->key, entry->value);
+      table_set(vm,to, entry->key, entry->value);
     }
   }
 }
@@ -139,10 +139,10 @@ void table_remove_white(Table* table){
     }
 }
 
-void mark_table(Table* table){
+void mark_table(RotoVM* vm,Table* table){
     for(int i = 0; i <= table->capacity; i++){
         Entry* entry = &table->entries[i];
-        mark_object((Obj*)entry->key);
-        mark_value(entry->value);
+        mark_object(vm,(Obj*)entry->key);
+        mark_value(vm,entry->value);
     }
 }

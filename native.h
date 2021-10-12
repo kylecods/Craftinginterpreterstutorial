@@ -1,5 +1,5 @@
-#ifndef croto_native_h
-#define croto_native_h
+#ifndef file_native_h
+#define file_native_h
 
 #include <time.h>
 #include <math.h>
@@ -7,5 +7,5 @@
 #include "util.h"
 
 
-void define_all_natives();
+void define_all_natives(RotoVM* vm);
 #endif

@@ -1,8 +1,9 @@
-#ifndef croto_value_h
-#define croto_value_h
+#ifndef file_value_h
+#define file_value_h
 
 #include <string.h>
 #include "common.h"
+#include "include/roto.h"
 
 typedef struct sObj Obj;
 typedef struct sObjString ObjString;
@@ -105,8 +106,8 @@ typedef struct{
 
 bool vals_equal(Value a, Value b);
 void init_val_array(ValueArray *arr);
-void write_val_array(ValueArray *arr, Value value);
-void free_val_array(ValueArray *arr);
+void write_val_array(RotoVM* vm,ValueArray *arr, Value value);
+void free_val_array(RotoVM* vm,ValueArray *arr);
 
 void print_value(Value value);
 #endif

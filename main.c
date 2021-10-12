@@ -9,7 +9,7 @@
 
 #include "vm.h"
 
-static void repl(){
+static void repl(RotoVM* vm){
   char line[1024];
   for (;;){
     /* code */
@@ -20,7 +20,7 @@ static void repl(){
       break;
     }
 
-    interpret(line);
+    interpret(vm,line);
   }
 }
 //read binary file
@@ -56,19 +56,22 @@ static char* read_file(const char* path){
 }
 
 
-static void run_file(const char* path){
+static void run_file(RotoVM* vm,const char* path){
   char *source = read_file(path);
-  InterpretResult result = interpret(source);
+  InterpretResult result = interpret(vm,source);
 
   free(source);
 
   if(result == INTERPRET_COMPILE_ERROR) exit(65);
   if(result == INTERPRET_RUNTIME_ERROR) exit(70);
 }
+static void* reallocate(void* memory, size_t old_size, size_t new_size){
 
+    return realloc(memory, new_size);
+}
 
 int main(int argc, char **argv){
-  init_vm();
+  RotoVM* vm =  init_vm(reallocate);
   Chunk ch;
   init_chunk(&ch);
   
@@ -92,14 +95,14 @@ int main(int argc, char **argv){
   //
 
   if(argc == 1){
-    repl();
+    repl(vm);
   }else if(argc == 2){
-    run_file(argv[1]);
+    run_file(vm,argv[1]);
   }else{
     fprintf(stderr, "Usage: croto [path]\n");
     exit(64);
   }
-  free_vm();
+  free_vm(vm);
   // free_chunk(&ch);
 
   return 0;

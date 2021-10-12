@@ -14,11 +14,11 @@ void init_chunk(Chunk *chunk) {
   init_val_array(&chunk->constants);
 }
 
-void free_chunk(Chunk *chunk) {
+void free_chunk(RotoVM* vm,Chunk *chunk) {
   /* code */
-  FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-  FREE_ARRAY(int, chunk->lines, chunk->capacity);
-  free_val_array(&chunk->constants);
+  FREE_ARRAY(vm,uint8_t, chunk->code, chunk->capacity);
+  FREE_ARRAY(vm,int, chunk->lines, chunk->capacity);
+  free_val_array(vm,&chunk->constants);
   init_chunk(chunk);
 
 }
@@ -31,22 +31,22 @@ void free_chunk(Chunk *chunk) {
 *6.Store the element in the new array now that there is room.
 *7.Update the count.
 */
-void write_chunk(Chunk *chunk, uint8_t byte, int line){
+void write_chunk(RotoVM* vm,Chunk *chunk, uint8_t byte, int line){
   if(chunk->capacity < chunk->count + 1){
     int old_cap = chunk->capacity;
     chunk->capacity = GROW_CAPACITY(old_cap);
-    chunk->code = GROW_ARRAY(chunk->code, uint8_t, old_cap, chunk->capacity);
-    chunk->lines = GROW_ARRAY(chunk->lines, int, old_cap, chunk->capacity);
+    chunk->code = GROW_ARRAY(vm,chunk->code, uint8_t, old_cap, chunk->capacity);
+    chunk->lines = GROW_ARRAY(vm,chunk->lines, int, old_cap, chunk->capacity);
   }
   chunk->code[chunk->count] = byte;
   chunk->lines[chunk->count] = line;
   chunk->count++;
 }
-int add_constant(Chunk *chunk, Value value){
+int add_constant(RotoVM* vm,Chunk *chunk, Value value){
     //make new constants reachable for the GC
-    push(value);
+    push(vm,value);
     //GC trigger
-    write_val_array(&chunk->constants, value);
-    pop();
+    write_val_array(vm,&chunk->constants, value);
+    pop(vm);
     return chunk->constants.count - 1;
 }
