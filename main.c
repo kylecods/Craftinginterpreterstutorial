@@ -74,25 +74,6 @@ int main(int argc, char **argv){
   RotoVM* vm =  init_vm(reallocate);
   Chunk ch;
   init_chunk(&ch);
-  
-
-  //instruction test
-  // write_chunk(&ch, OP_CONSTANT,123);
-  // write_chunk(&ch, constant,123);
-  //
-  // write_chunk(&ch, OP_CONSTANT,123);
-  // write_chunk(&ch, add_constant(&ch, 3.4),123);
-  //
-  // write_chunk(&ch, OP_ADD,123);
-  //
-  // write_chunk(&ch, OP_CONSTANT,123);
-  // write_chunk(&ch, add_constant(&ch, 5.6),123);
-  //
-  // write_chunk(&ch, OP_DIV,123);
-  //
-  // write_chunk(&ch, OP_RETURN,123);
-  //
-  //
 
   if(argc == 1){
     repl(vm);
