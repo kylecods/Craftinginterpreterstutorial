@@ -21,10 +21,9 @@ static void reset_stack(RotoVM* vm) {
 }
 void runtime_error(RotoVM* vm,const char *format, ...){
     va_list args;
-            va_start(args, format);
+    va_start(args, format);
     vfprintf(stderr, format, args);
-
-            va_end(args);
+    va_end(args);
     fputs("\n", stderr);
 
     for (int i = vm->frameCount - 1; i >= 0; i--) {
@@ -294,7 +293,7 @@ static void define_method(RotoVM* vm, ObjString* name){
 
 //@fix
 bool is_falsey(Value value){
-  return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+  return IS_NIL(value) ||(IS_BOOL(value) && !AS_BOOL(value));
 }
 
 static void concatenate(RotoVM* vm){
@@ -314,6 +313,7 @@ static void concatenate(RotoVM* vm){
 }
 static InterpretResult run(RotoVM* vm){
     CallFrame* frame = &vm->frames[vm->frameCount - 1];
+//    register uint8_t* ip = frame->ip;
 
   #define READ_BYTE() (*frame->ip++)
   #define READ_CONST() (frame->closure->function->chunk.constants.values[READ_BYTE()])
@@ -373,19 +373,19 @@ static InterpretResult run(RotoVM* vm){
     #else
         #define DISPATCH()\
             do{\
-                goto *dispatchTable[instruction = READ_BYTE()];\
+                goto *dispatchTable[instr = READ_BYTE()];\
             }while(false)
     #endif
 
 #else
 
-    #define INTERPRET_LOOP\
-        loop:\
-            switch (instr = READ_BYTE()) 
+#define INTERPRET_LOOP          \
+        loop:                   \
+            switch (instr = READ_BYTE())
 
-    #define DISPATCH() goto loop
+#define DISPATCH() goto loop
 
-    #define CASE_CODE(name) case OP_##name
+#define CASE_CODE(name) case OP_##name
 
 #endif
 

@@ -49,7 +49,7 @@ static Value assert_native(RotoVM* vm, int arg_count, Value* args){
     }
 
     if(is_falsey(args[0])){
-        runtime_error(vm, "assert() was false!");
+        runtime_error(vm, "assert was false!");
         return NIL_VAL;
     }
 
