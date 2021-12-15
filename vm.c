@@ -293,7 +293,7 @@ static void define_method(RotoVM* vm, ObjString* name){
 }
 
 //@fix
-static bool is_falsey(Value value){
+bool is_falsey(Value value){
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 

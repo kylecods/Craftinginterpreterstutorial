@@ -41,6 +41,20 @@ static Value append_native(RotoVM* vm,int arg_count, Value* args){
     append_to_list(vm,list,item);
     return NIL_VAL;
 }
+
+static Value assert_native(RotoVM* vm, int arg_count, Value* args){
+    if(arg_count != 1){
+        runtime_error(vm, "Expected 1 argument but got %d.", arg_count);
+        return NIL_VAL;
+    }
+
+    if(is_falsey(args[0])){
+        runtime_error(vm, "assert() was false!");
+        return NIL_VAL;
+    }
+
+    return NIL_VAL;
+}
 static Value lenList_native(RotoVM* vm,int arg_count, Value* args){
     if(arg_count != 1 || !IS_LIST(args[0])){
         runtime_error(vm,"Expected 1 arguments but got %d.", arg_count);
@@ -120,6 +134,7 @@ void define_all_natives(RotoVM* vm){
             "append",
             "len",
             "delete",
+            "assert"
 
     };
 
@@ -131,6 +146,7 @@ void define_all_natives(RotoVM* vm){
             append_native,
             lenList_native,
             delete_native,
+            assert_native
 
     };
 

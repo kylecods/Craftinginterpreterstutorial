@@ -47,6 +47,7 @@ void append_to_list(RotoVM* vm,ObjList* list, Value value);
 bool is_valid_list_index(ObjList* list, int index);
 void delete_from_list(ObjList* list, int index);
 void runtime_error(RotoVM* vm,const char *format, ...);
+bool is_falsey(Value value);
 
 
 
