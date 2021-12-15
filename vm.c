@@ -346,40 +346,71 @@ static InterpretResult run(RotoVM* vm){
            push(vm,val_type(a op b));\
     }while(false);
 
-  for(;;){
+#ifdef COMPUTED_GOTO
+
+    static void *dispatchTable[] = {
+        #define OPCODE(name) &&op_##name,
+        #include "opcodes.h"
+        #undef OPCODE
+    };
+
+    #define INTERPRET_LOOP DISPATCH();
+    #define CASE_CODE(name) op_##name
+
     #ifdef DEBUG_TRACE_EXECUTION
-      printf("     ");
-      for (Value* slot = vm->stack; slot < vm->stack_top; slot++) {
-        /* code */
-        printf("[ ");
-        print_value(*slot);
-        printf(" ]");
-      }
-      printf("\n");
-      disassemble_instr(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));
+        #define DISPATCH()\
+        do{\
+            printf("     ");\
+        for (Value* slot = vm->stack; slot < vm->stack_top; slot++) {\
+            printf("[ ");\
+            print_value(*slot);\
+            printf(" ]");\
+        }\
+        printf("\n");\
+        disassemble_instr(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));\
+        goto *dispatchTable[instruction = READ_BYTE()];\
+        }while(false)
+    #else
+        #define DISPATCH()\
+            do{\
+                goto *dispatchTable[instruction = READ_BYTE()];\
+            }while(false)
     #endif
+
+#else
+
+    #define INTERPRET_LOOP\
+        loop:\
+            switch (instr = READ_BYTE()) 
+
+    #define DISPATCH() goto loop
+
+    #define CASE_CODE(name) case OP_##name
+
+#endif
+
     uint8_t instr;
-    switch (instr = READ_BYTE()) {
-      case OP_CONSTANT:{
+    INTERPRET_LOOP {
+      CASE_CODE(CONSTANT):{
         Value constant = READ_CONST();
         push(vm,constant);
-        break;
+        DISPATCH();
       }
 
-      case OP_NIL: push(vm,NIL_VAL); break;
-      case OP_TRUE: push(vm,BOOL_VAL(true)); break;
-      case OP_FALSE: push(vm,BOOL_VAL(false)); break;
-      case OP_POP: pop(vm); break;
-      case OP_GET_LOCAL:{
+      CASE_CODE(NIL): push(vm,NIL_VAL); DISPATCH();
+      CASE_CODE(TRUE): push(vm,BOOL_VAL(true)); DISPATCH();
+      CASE_CODE(FALSE): push(vm,BOOL_VAL(false)); DISPATCH();
+      CASE_CODE(POP): pop(vm); DISPATCH();
+      CASE_CODE(GET_LOCAL):{
         uint8_t slot = READ_BYTE();
         push(vm,frame->slots[slot]);
-        break;
+        DISPATCH();
       }
-      case OP_SET_LOCAL:{
+      CASE_CODE(SET_LOCAL):{
         uint8_t slot = READ_BYTE();
         frame->slots[slot] = peek(vm,0);
       }
-      case OP_GET_GLOBAL:{//assuming load gl_var to stack
+      CASE_CODE(GET_GLOBAL):{//assuming load gl_var to stack
         ObjString* name = READ_STRING();
         Value value;
         if(!table_get(&vm->globals, name, &value)){
@@ -387,35 +418,35 @@ static InterpretResult run(RotoVM* vm){
           return INTERPRET_RUNTIME_ERROR;
         }
         push(vm,value);
-        break;
+        DISPATCH();
       }
-      case OP_DEFINE_GLOBAL: {
+      CASE_CODE(DEFINE_GLOBAL): {
         ObjString* name = READ_STRING();
         table_set(vm,&vm->globals, name, peek(vm,0));
         pop(vm);
-        break;
+        DISPATCH();
       }
-      case OP_SET_GLOBAL:{
+      CASE_CODE(SET_GLOBAL):{
         ObjString* name = READ_STRING();
         if(table_set(vm,&vm->globals, name, peek(vm,0))){
           table_delete(&vm->globals,name);
           runtime_error(vm,"Undefined variable '%s'.", name->chars);
           return INTERPRET_RUNTIME_ERROR;
         }
-        break;
+        DISPATCH();
       }
-      case OP_GET_UPVALUE:{
+      CASE_CODE(GET_UPVALUE):{
           uint8_t slot = READ_BYTE();
           push(vm,*frame->closure->upvalues[slot]->location);
-          break;
+          DISPATCH();
       }
-      case OP_SET_UPVALUE:{
+      CASE_CODE(SET_UPVALUE):{
           uint8_t slot = READ_BYTE();
           *frame->closure->upvalues[slot]->location = peek(vm,0);
-          break;
+          DISPATCH();
       }
 
-      case OP_GET_PROPERTY: {
+      CASE_CODE(GET_PROPERTY): {
           if (!IS_INSTANCE(peek(vm,0))){
               runtime_error(vm,"Only instances have properties.");
               return INTERPRET_RUNTIME_ERROR;
@@ -428,16 +459,16 @@ static InterpretResult run(RotoVM* vm){
           if(table_get(&instance->fields, name, &value)){
               pop(vm); //instance
               push(vm,value);
-              break;
+              DISPATCH();
           }
           if(!bind_method(vm,instance->klass, name)){
               return INTERPRET_RUNTIME_ERROR;
           }
-          break;
+          DISPATCH();
 
       }
 
-      case OP_SET_PROPERTY:{
+      CASE_CODE(SET_PROPERTY):{
           if(!IS_INSTANCE(peek(vm,1))){
               runtime_error(vm,"Only instances have fields.");
               return INTERPRET_RUNTIME_ERROR;
@@ -448,28 +479,28 @@ static InterpretResult run(RotoVM* vm){
           Value value = pop(vm);
           pop(vm);
           push(vm,value);
-          break;
+          DISPATCH();
       }
 
 
-      case OP_GET_SUPER:{
+      CASE_CODE(GET_SUPER):{
           ObjString* name = READ_STRING();
           ObjClass* superclass = AS_CLASS(pop(vm));
           if(!bind_method(vm,superclass, name)){
               return INTERPRET_RUNTIME_ERROR;
           }
-          break;
+          DISPATCH();
       }
 
-      case OP_EQUAL: {
+      CASE_CODE(EQUAL): {
         Value b = pop(vm);
         Value a = pop(vm);
         push(vm,BOOL_VAL(vals_equal(a,b)));
-        break;
+        DISPATCH();
       }
-      case OP_GREATER: BINARY_OP(BOOL_VAL, >,double); break;
-      case OP_LESS: BINARY_OP(BOOL_VAL, <, double); break;
-      case OP_ADD:{
+      CASE_CODE(GREATER): BINARY_OP(BOOL_VAL, >,double); DISPATCH();
+      CASE_CODE(LESS): BINARY_OP(BOOL_VAL, <, double); DISPATCH();
+      CASE_CODE(ADD):{
         if(IS_STRING(peek(vm,0)) && IS_STRING(peek(vm,1))){
           concatenate(vm);
         }else if(IS_NUMBER(peek(vm,0)) && IS_NUMBER(peek(vm,1))){
@@ -480,87 +511,87 @@ static InterpretResult run(RotoVM* vm){
           runtime_error(vm,"Operands must be two numbers or two strings.");
           return INTERPRET_RUNTIME_ERROR;
         }
-        break;
+        DISPATCH();
       }
-      case OP_SUB:{
+      CASE_CODE(SUB):{
         BINARY_OP(NUMBER_VAL, -,double);
-        break;
+        DISPATCH();
       }
-      case OP_MUL:{
+      CASE_CODE(MUL):{
         BINARY_OP(NUMBER_VAL, *, double);
-        break;
+        DISPATCH();
       }
-      case OP_DIV:{
+      CASE_CODE(DIV):{
         BINARY_OP(NUMBER_VAL, /, double);
-        break;
+        DISPATCH();
       }
-      case OP_BITWISE_AND:{
+      CASE_CODE(BITWISE_AND):{
           BINARY_OP(NUMBER_VAL, &, int);
-          break;
+          DISPATCH();
       }
-        case OP_BITWISE_OR:{
+        CASE_CODE(BITWISE_OR):{
             BINARY_OP(NUMBER_VAL, |, int);
-            break;
+            DISPATCH();
         }
-        case OP_BITWISE_XOR:{
+        CASE_CODE(BITWISE_XOR):{
             BINARY_OP(NUMBER_VAL, ^, int);
-            break;
+            DISPATCH();
         }
-        case OP_LEFT_SHIFT:{
+        CASE_CODE(LEFT_SHIFT):{
             BINARY_OP(NUMBER_VAL, <<, int);
-            break;
+            DISPATCH();
         }
-        case OP_RIGHT_SHIFT:{
+        CASE_CODE(RIGHT_SHIFT):{
             BINARY_OP(NUMBER_VAL, >>,int);
-            break;
+            DISPATCH();
         }
-      case OP_NOT:
+      CASE_CODE(NOT):
         push(vm,BOOL_VAL(is_falsey(pop(vm))));
-        break;
-      case OP_NEGATE:{
+        DISPATCH();
+      CASE_CODE(NEGATE):{
         if(!IS_NUMBER(peek(vm,0))){
           runtime_error(vm,"Operand must be a number.");
           return INTERPRET_RUNTIME_ERROR;
         }
         push(vm,NUMBER_VAL(-AS_NUMBER(pop(vm))));
-        break;
+        DISPATCH();
       }
 
-      case OP_JUMP: {
+      CASE_CODE(JUMP): {
         uint16_t offset = READ_SHORT();
         frame->ip += offset;
-        break;
+        DISPATCH();
       }
 
-      case OP_JUMP_IF_FALSE: {
+      CASE_CODE(JUMP_IF_FALSE): {
         uint16_t offset = READ_SHORT();
         if(is_falsey(peek(vm,0))) frame->ip += offset;
-        break;
+        DISPATCH();
       }
-      case OP_LOOP: {
+      CASE_CODE(LOOP): {
         uint16_t offset = READ_SHORT();
         frame->ip -= offset;
-        break;
+        DISPATCH();
       }
-        case OP_CALL: {
+        CASE_CODE(CALL): {
             int arg_count = READ_BYTE();
             if (!call_value(vm,peek(vm,arg_count), arg_count)) {
                 return INTERPRET_RUNTIME_ERROR;
             }
             frame = &vm->frames[vm->frameCount - 1];
-            break;
+            DISPATCH();
         }
 
-        case OP_INVOKE: {
+        CASE_CODE(INVOKE): {
             ObjString* method = READ_STRING();
             int arg_count = READ_BYTE();
             if(!invoke(vm,method, arg_count)){
                 return INTERPRET_RUNTIME_ERROR;
             }
             frame = &vm->frames[vm->frameCount - 1];
-            break;
+            DISPATCH();
         }
-        case OP_BUILD_LIST:{
+        CASE_CODE(BUILD_LIST):{
             ObjList* list = newList(vm);
             uint8_t item_count = READ_BYTE();
 
@@ -576,13 +607,13 @@ static InterpretResult run(RotoVM* vm){
                 pop(vm);
             }
             push(vm,OBJ_VAL(list));
-            break;
+            DISPATCH();
         }
-        case OP_WIDE:{
+        CASE_CODE(WIDE):{
             vm->next_op_wide = 2;
-            break;
+            DISPATCH();
         }
-        case OP_INDEX_SUBSCR:{
+        CASE_CODE(INDEX_SUBSCR):{
             Value index = peek(vm,0);
             Value list = peek(vm,1);
 
@@ -605,10 +636,10 @@ static InterpretResult run(RotoVM* vm){
             pop(vm);
             pop(vm);
             push(vm,result);
-            break;
+            DISPATCH();
         }
 
-        case OP_STORE_SUBSCR:{
+        CASE_CODE(STORE_SUBSCR):{
             Value item = peek(vm,0);
             Value index = peek(vm,1);
             Value list = peek(vm,2);
@@ -634,9 +665,9 @@ static InterpretResult run(RotoVM* vm){
             pop(vm);
              push(vm,item);
 //            push(NIL_VAL);
-            break;
+            DISPATCH();
         }
-        case OP_SUPER_INVOKE:{
+        CASE_CODE(SUPER_INVOKE):{
             ObjString* method = READ_STRING();
             int arg_count = READ_BYTE();
             ObjClass* superclass = AS_CLASS(pop(vm));
@@ -644,11 +675,11 @@ static InterpretResult run(RotoVM* vm){
                 return INTERPRET_RUNTIME_ERROR;
             }
             frame = &vm->frames[vm->frameCount-1];
-            break;
+            DISPATCH();
         }
 
 
-        case OP_CLOSURE:{
+        CASE_CODE(CLOSURE):{
             ObjFunction* function = AS_FUNCTION(READ_CONST());
             ObjClosure* closure = newClosure(vm,function);
             push(vm,OBJ_VAL(closure));
@@ -661,13 +692,13 @@ static InterpretResult run(RotoVM* vm){
                     closure->upvalues[i] =closure->upvalues[index];
                 }
             }
-            break;
+            DISPATCH();
         }
-        case OP_CLOSE_UPVALUE:
+        CASE_CODE(CLOSE_UPVALUE):
             close_upvalues(vm,vm->stack_top - 1);
             pop(vm);
-            break;
-      case OP_RETURN:{
+            DISPATCH();
+      CASE_CODE(RETURN):{
           Value result = pop(vm);
           close_upvalues(vm,frame->slots);
           vm->frameCount--;
@@ -678,14 +709,14 @@ static InterpretResult run(RotoVM* vm){
           vm->stack_top = frame->slots;
           push(vm,result);
           frame = &vm->frames[vm->frameCount-1];
-          break;
+          DISPATCH();
       }
-      case OP_CLASS:
+      CASE_CODE(CLASS):
           push(vm,OBJ_VAL(newClass(vm,READ_STRING())));
-          break;
+          DISPATCH();
 
 
-        case OP_INHERIT:{
+        CASE_CODE(INHERIT):{
             Value superclass = peek(vm,1);
             if(!IS_CLASS(superclass)){
                 runtime_error(vm,"Superclass must be a class.");
@@ -694,25 +725,21 @@ static InterpretResult run(RotoVM* vm){
             ObjClass* subclass = AS_CLASS(peek(vm,0));
             table_add_all(vm,&AS_CLASS(superclass)->methods,&subclass->methods);
             pop(vm);//subclass
-            break;
+            DISPATCH();
         }
-        case OP_METHOD:
+        CASE_CODE(METHOD):
             define_method(vm,READ_STRING());
-            break;
+            DISPATCH();
     }
-    if(vm->next_op_wide == 1){
-        runtime_error(vm,"OP_WIDE used on an invalid opcode.");
-        return INTERPRET_RUNTIME_ERROR;
-    } else if(vm->next_op_wide == 2){
-        vm->next_op_wide--;
-    }
-  }
+
   #undef READ_BYTE
   #undef READ_SHORT
   #undef READ_CONST
   #undef READ_STRING
   #undef BINARY_OP
   #undef BITWISE_OP
+
+  return INTERPRET_RUNTIME_ERROR;
 }
 
 InterpretResult interpret(RotoVM* vm,const char* source){
